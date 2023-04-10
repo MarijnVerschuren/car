@@ -17,18 +17,42 @@
 #define HC12_SET_PIN 7
 
 
-struct {
-	uint16_t magic;  // word that starts a message
-	uint16_t steering;
-	uint16_t throttle;
-	uint16_t crc;
-} msg;
+io_buffer_t* uart_buf;
+volatile struct {
+	uint8_t throttle;
+	uint8_t steering;
+	uint16_t flags;
+} command;
 
+/*
+		CRC->CR |= CRC_CR_RESET;	// resetting crc
+		CRC->DR = data			& 0xff;
+		CRC->DR = (data >> 8)	& 0xff;
+		CRC->DR = (data >> 16)	& 0xff;
+		CRC->DR = (data >> 24) 	& 0xff;
+		uint32_t crc = CRC->DR;		// reading the crc result
+*/
 
 extern void TIM3_IRQHandler(void) {
 	TIM3->SR &= ~TIM_SR_UIF;
-	// TODO: READ USART BUFFER
-	GPIO_toggle(LED_GPIO_PORT, LED_PIN);
+	volatile uint32_t data, data_crc, crc;
+	// difference with unsigned int so that the code continues when i index is lower
+	while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
+		// find start byte (0xFF) TODO: see if it is possible to remove this
+		while ((*(uint8_t*)(uart_buf->ptr + uart_buf->o)) != 0xff) {
+			uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
+			if ((uart_buf->i - uart_buf->o) < 9) { return; }
+		}; uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
+
+		data = *((uint32_t*)(uart_buf->ptr + uart_buf->o));
+		data_crc = *((uint32_t*)(uart_buf->ptr + uart_buf->o + 4));
+
+		reset_CRC();
+		CRC->DR = data;				// loading data into the crc device
+		crc = CRC->DR;        		// reading the crc result
+
+		if (data_crc == crc) { *((uint32_t*)&command) = data; }
+	}
 }
 
 int main(void) {
@@ -48,23 +72,25 @@ int main(void) {
 
 	// UART input
 	enable_CRC();
-	volatile io_buffer_t* uart_buf = new_buffer(1024);
+	uart_buf = new_buffer(1024);
 	if (!uart_buf) { return -1; }  // allocation error
 	fconfig_UART(USART1_TX_A9, USART1_RX_A10, 9600, USART_OVERSAMPLING_16);
 	start_USART_receive_irq(USART1, uart_buf, 1);
 
 	// UART buffer polling interrupt
-	config_TIM(TIM3, 500, 2000);  // 1/50 s
+	config_TIM(TIM3, 50, 2000);  // 500 Hz
 	start_TIM_update_irq(TIM3);  // TIM3_IRQHandler
 	start_TIM(TIM3);
 
 	// PWM output
-	config_PWM(TIM2_CH1_A0, 100, 20000);		TIM2->CCR1 = 600;	// steering
-	config_PWM(TIM2_CH3_B10, 100, 20000);	TIM2->CCR3 = 1500;	// throttle
+	config_PWM(TIM2_CH1_A0, 100, 20000);		TIM2->CCR1 = 950;	// steering 750 - 950 - 1150
+	config_PWM(TIM2_CH3_B10, 100, 20000);	TIM2->CCR3 = 1500;	// throttle 1500 - ... TODO: limits
+
 
 	// main loop
 	for(;;) {
-		(void)uart_buf->i_index;  // this is done so that uart_buf is not optimized out...
+		TIM2->CCR3 = 1500 + command.throttle;
+		TIM2->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));  // multiplied by constant that scales it from [-128, 127] to [-200, 200]
 		//USART_print(USART1, "hello USART1!?", 100);	delay_ms(333);
 	}
 }

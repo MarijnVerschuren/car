@@ -1,11 +1,12 @@
 import crc as crc_lib
 from inputs import *
 import threading
-import sys, os
 import ctypes
 import struct
 import serial
 import time
+import sys
+import os
 
 from lib import *  # PS3
 
@@ -34,8 +35,13 @@ def controller_update_loop(controller: PS3) -> None:
 # functions                                     |
 #==============================================/
 def package(throttle: int, steering: int) -> bytes:
-    pack_data = struct.pack("<Hh", throttle, steering)
-    pack_crc = struct.pack("<L", crc.checksum(pack_data))
+    # struct packet {
+    #   uint8_t throttle;
+    #   uint8_t steering;
+    #   uint16_t flags;  # not used at this time
+    # }
+    pack_data = struct.pack("<BBH", throttle, steering, 0x0000)
+    pack_crc = struct.pack("<L", crc.checksum(pack_data[::-1]))  # flip bytes because python
     return pack_data + pack_crc
 
 
@@ -45,14 +51,15 @@ def package(throttle: int, steering: int) -> bytes:
 if __name__ == '__main__':
     # commands
     if "-help" in sys.argv: print(
-            "|----------------|-----|-----------|-----------------------------------------------------------------------|",
-            "| command        | req | args      | description                                                           |",
-            "|----------------|-----|-----------|-----------------------------------------------------------------------|",
-            "| -adapter       |  *  | %s        | port connected to the receiver of the car                             |",
-            "| -baud          |  *  | %d        | baud rate for serial communication                                    |",
-            "| -timeout       |     | %f        | time that one write/read operation is allowed to take (in seconds)    |",
-            "| -display       |     |           | display the packet that is being sent                                 |",
-            "|----------------|-----|-----------|-----------------------------------------------------------------------|",
+            "|----------------|-----|-----------|-------|--------------------------------------------------------|",
+            "| command        | req | args      | unit  | description                                            |",
+            "|----------------|-----|-----------|-------|--------------------------------------------------------|",
+            "| -adapter       |  *  | %s        | -     | port connected to the receiver of the car              |",
+            "| -baud          |  *  | %d        | bit/S | baud rate for serial communication                     |",
+            "| -timeout       |     | %f        | S     | time that one write/read operation is allowed to take  |",
+            "| -freq          |     | %d        | Hz    | send frequency (default: 50 Hz, max: <500 Hz)          |",
+            "| -display       |     |           | -     | display the packet that is being sent                  |",
+            "|----------------|-----|-----------|-------|--------------------------------------------------------|",
             sep="\n"
         ); exit(0)
 
@@ -68,6 +75,10 @@ if __name__ == '__main__':
     timeout = 0  # no timeout as default
     if "-timeout" in sys.argv:
         try: timeout = float(sys.argv[sys.argv.index("-timeout") + 1])
+        except IndexError or ValueError:  raise Exception("invalid or no timeout provided")
+    send_delay = 1 / 50  # 50 Hz
+    if "-freq" in sys.argv:
+        try: send_delay = 1 / int(sys.argv[sys.argv.index("-freq") + 1])
         except IndexError or ValueError:  raise Exception("invalid or no timeout provided")
     display = "-display" in sys.argv
 
@@ -95,13 +106,15 @@ if __name__ == '__main__':
     ser = serial.Serial(adapter, baud, timeout=timeout)
 
     # main loop
-    while True:
-        packet = package(
-            int(ps3.trigger_R.x * 0xFFFF),  # map the right trigger value to an unsigned short
-            int(ps3.joystick_R.x * 0x7FFF)  # map the x coordinate of the right joystick to a signed short
-        )
-        if display: print(f"{ps3.trigger_R.x}, {ps3.joystick_R.x} -> {packet.hex()}" + (" " * 50), end="\r")
-        #ser.write(packet); time.sleep(1)
-        #print(ps3, end="\r")
-
-        time.sleep(0.015)  # TODO: remove
+    try:
+        while True:
+            packet = package(
+                ps3.trigger_R.raw,    # 0 - 255
+                ps3.joystick_R.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
+            )
+            if display: print(f"{packet.hex()} -> {ps3.trigger_R.x}, {ps3.joystick_R.x}" + (" " * 50), end="\r")
+            ser.write(b"\xff" + packet)
+            time.sleep(send_delay)
+    except KeyboardInterrupt:  # stop gracefully
+        ps3_t.stop()
+        os._exit(0)

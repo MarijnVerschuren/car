@@ -36,10 +36,10 @@ USART_IRQ_IO_t usart_buf_6;
 /*!< irq handlers */
 void USART_irq_handler(USART_TypeDef* usart, USART_IRQ_IO_t* io) {
 	if(usart->SR & USART_SR_RXNE && io->rx_buf->ptr) {
-		((uint8_t*)io->rx_buf->ptr)[io->rx_buf->i_index] = usart->DR;
-		io->rx_buf->i_index += 1;
-		if (io->rx_buf->i_index >= io->rx_buf->size) {
-			if (io->rx_fifo) { io->rx_buf->i_index = 0; return; }	// reset offset
+		((uint8_t*)io->rx_buf->ptr)[io->rx_buf->i] = usart->DR;
+		io->rx_buf->i += 1;
+		if (io->rx_buf->i >= io->rx_buf->size) {
+			if (io->rx_fifo) { io->rx_buf->i = 0; return; }	// reset offset
 			usart->CR1 &= ~USART_CR1_RXNEIE;					// turn off irq
 		}
 	}
@@ -68,8 +68,8 @@ void fconfig_UART(USART_GPIO_t tx, USART_GPIO_t rx, uint32_t baud, USART_oversam
 	if (tx_enable && rx_enable && tx_uart != rx_uart) { return; }  // error if tx and rx are on different usart devices
 
 	// config pins
-	fconfig_GPIO(tx_port, tx, GPIO_alt_func, GPIO_pull_up, GPIO_open_drain, GPIO_very_high_speed, tx_af);
-	fconfig_GPIO(rx_port, rx, GPIO_alt_func, GPIO_pull_up, GPIO_open_drain, GPIO_very_high_speed, rx_af);
+	fconfig_GPIO(tx_port, tx, GPIO_alt_func, GPIO_no_pull, GPIO_push_pull, GPIO_very_high_speed, tx_af);
+	fconfig_GPIO(rx_port, rx, GPIO_alt_func, GPIO_no_pull, GPIO_push_pull, GPIO_very_high_speed, rx_af);
 
 	// config uart registers
 	uint16_t uart_div = UART_division(uart, baud) * (oversampling + 1);
