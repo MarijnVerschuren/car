@@ -1,16 +1,20 @@
 #include "main.h"
-#include "gpio.h"	// all pins are defined here
-#include "exti.h"
-#include "tim.h"	// all timers and delays are defined here
 #include "sys.h"
-#include "usart.h"
+#include "gpio.h"
+#include "exti.h"
+#include "tim.h"
 #include "pwm.h"
+#include "usart.h"
+#include "crc.h"
 
 
 #ifdef STM32F4xx
 
 #define LED_GPIO_PORT GPIOC
 #define LED_PIN 13
+
+#define HC12_SET_PORT GPIOA
+#define HC12_SET_PIN 7
 
 
 struct {
@@ -23,6 +27,7 @@ struct {
 
 extern void TIM3_IRQHandler(void) {
 	TIM3->SR &= ~TIM_SR_UIF;
+	// TODO: READ USART BUFFER
 	GPIO_toggle(LED_GPIO_PORT, LED_PIN);
 }
 
@@ -36,18 +41,21 @@ int main(void) {
 	sys_clock_init(sys_config); free(sys_config);
 
 	// GPIO output
+	config_GPIO(HC12_SET_PORT, HC12_SET_PIN, GPIO_output, GPIO_no_pull, GPIO_open_drain);  // OD IMPORTANT!!!
+	GPIO_write(HC12_SET_PORT, HC12_SET_PIN, 1);  // high to disable settings mode
 	config_GPIO(LED_GPIO_PORT, LED_PIN, GPIO_output, GPIO_no_pull, GPIO_push_pull);
 	GPIO_write(LED_GPIO_PORT, LED_PIN, 1);  // led is active low
 
 	// UART input
-	io_buffer_t* uart_buf = new_buffer(1024);
+	enable_CRC();
+	volatile io_buffer_t* uart_buf = new_buffer(1024);
 	if (!uart_buf) { return -1; }  // allocation error
-	config_UART(USART1_TX_A9, USART1_RX_A10, 115200);
+	fconfig_UART(USART1_TX_A9, USART1_RX_A10, 9600, USART_OVERSAMPLING_16);
 	start_USART_receive_irq(USART1, uart_buf, 1);
 
 	// UART buffer polling interrupt
-	config_TIM(TIM3, 50000, 1000);  // 1s
-	start_TIM_update_irq(TIM3);  // TIM2_IRQHandler
+	config_TIM(TIM3, 500, 2000);  // 1/50 s
+	start_TIM_update_irq(TIM3);  // TIM3_IRQHandler
 	start_TIM(TIM3);
 
 	// PWM output
@@ -56,7 +64,8 @@ int main(void) {
 
 	// main loop
 	for(;;) {
-		USART_print(USART1, "hello USART1!?", 100);	delay_ms(333);
+		(void)uart_buf->i_index;  // this is done so that uart_buf is not optimized out...
+		//USART_print(USART1, "hello USART1!?", 100);	delay_ms(333);
 	}
 }
 

@@ -125,7 +125,7 @@ class PS3(Controller):
         RT: {self.trigger_R.x}
         TRIANGLE: {self.y.pressed}
         CIRCLE:   {self.b.pressed}
-        CROSS:    {self.a.pressed}
+        X_BUTTON: {self.a.pressed}
         SQUARE:   {self.x.pressed}
         UP:       {self.up.pressed}
         RIGHT:    {self.right.pressed}
