@@ -1,7 +1,6 @@
 #include "main.h"
 #include "sys.h"
 #include "gpio.h"
-#include "exti.h"
 #include "tim.h"
 #include "pwm.h"
 #include "usart.h"
@@ -9,9 +8,6 @@
 
 
 #ifdef STM32F4xx
-
-#define LED_GPIO_PORT GPIOC
-#define LED_PIN 13
 
 #define HC12_SET_PORT GPIOA
 #define HC12_SET_PIN 7
@@ -23,35 +19,25 @@ volatile struct {
 	uint8_t steering;
 	uint16_t flags;
 } command;
+volatile uint32_t misses = 0;
 
-/*
-		CRC->CR |= CRC_CR_RESET;	// resetting crc
-		CRC->DR = data			& 0xff;
-		CRC->DR = (data >> 8)	& 0xff;
-		CRC->DR = (data >> 16)	& 0xff;
-		CRC->DR = (data >> 24) 	& 0xff;
-		uint32_t crc = CRC->DR;		// reading the crc result
-*/
 
 extern void TIM3_IRQHandler(void) {
-	TIM3->SR &= ~TIM_SR_UIF;
-	volatile uint32_t data, data_crc, crc;
-	// difference with unsigned int so that the code continues when i index is lower
+	TIM3->SR &= ~TIM_SR_UIF; misses++;
+	uint32_t data, data_crc, crc;
+
 	while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
-		// find start byte (0xFF) TODO: see if it is possible to remove this
-		while ((*(uint8_t*)(uart_buf->ptr + uart_buf->o)) != 0xff) {
-			uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
-			if ((uart_buf->i - uart_buf->o) < 9) { return; }
-		}; uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
+		uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
+		if (uart_buf->size - uart_buf->o < 8) { uart_buf->o = uart_buf->size - 1; continue;	}
 
 		data = *((uint32_t*)(uart_buf->ptr + uart_buf->o));
 		data_crc = *((uint32_t*)(uart_buf->ptr + uart_buf->o + 4));
 
 		reset_CRC();
-		CRC->DR = data;				// loading data into the crc device
-		crc = CRC->DR;        		// reading the crc result
+		CRC->DR = data;		// loading data into the crc device
+		crc = CRC->DR;		// reading the crc result
 
-		if (data_crc == crc) { *((uint32_t*)&command) = data; }
+		if (data_crc == crc) { misses = 0; *((uint32_t*)&command) = data; }
 	}
 }
 
@@ -67,8 +53,6 @@ int main(void) {
 	// GPIO output
 	config_GPIO(HC12_SET_PORT, HC12_SET_PIN, GPIO_output, GPIO_no_pull, GPIO_open_drain);  // OD IMPORTANT!!!
 	GPIO_write(HC12_SET_PORT, HC12_SET_PIN, 1);  // high to disable settings mode
-	config_GPIO(LED_GPIO_PORT, LED_PIN, GPIO_output, GPIO_no_pull, GPIO_push_pull);
-	GPIO_write(LED_GPIO_PORT, LED_PIN, 1);  // led is active low
 
 	// UART input
 	enable_CRC();
@@ -84,14 +68,15 @@ int main(void) {
 
 	// PWM output
 	config_PWM(TIM2_CH1_A0, 100, 20000);		TIM2->CCR1 = 950;	// steering 750 - 950 - 1150
-	config_PWM(TIM2_CH3_B10, 100, 20000);	TIM2->CCR3 = 1500;	// throttle 1500 - ... TODO: limits
+	config_PWM(TIM2_CH3_B10, 100, 20000);	TIM2->CCR3 = 1500;	// throttle 1500 - 2500
 
 
 	// main loop
 	for(;;) {
-		TIM2->CCR3 = 1500 + command.throttle;
+		if (misses > 250) { TIM2->CCR1 = 950; TIM2->CCR3 = 1500; continue; }  // disconnected
+
+		TIM2->CCR3 = 1500 + (command.throttle * 2);  // idle + 512  (around + 1000 is max)
 		TIM2->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));  // multiplied by constant that scales it from [-128, 127] to [-200, 200]
-		//USART_print(USART1, "hello USART1!?", 100);	delay_ms(333);
 	}
 }
 

@@ -113,7 +113,7 @@ if __name__ == '__main__':
                 ps3.joystick_R.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
             )
             if display: print(f"{packet.hex()} -> {ps3.trigger_R.x}, {ps3.joystick_R.x}" + (" " * 50), end="\r")
-            ser.write(b"\xff" + packet)
+            ser.write(packet)
             time.sleep(send_delay)
     except KeyboardInterrupt:  # stop gracefully
         ps3_t.stop()
