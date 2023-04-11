@@ -17,7 +17,8 @@ io_buffer_t* uart_buf;
 volatile struct {
 	uint8_t throttle;
 	uint8_t steering;
-	uint16_t flags;
+	uint16_t reverse : 1;
+	uint16_t flags : 15;
 } command;
 volatile uint32_t misses = 0;
 
@@ -75,8 +76,8 @@ int main(void) {
 	for(;;) {
 		if (misses > 250) { TIM2->CCR1 = 950; TIM2->CCR3 = 1500; continue; }  // disconnected
 
-		TIM2->CCR3 = 1500 + (command.throttle * 2);  // idle + 512  (around + 1000 is max)
-		TIM2->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));  // multiplied by constant that scales it from [-128, 127] to [-200, 200]
+		TIM2->CCR3 = (1500 + (command.throttle * 2) * (1 + -2 * command.reverse));		// idle +- 512  (around + 1000 is max)
+		TIM2->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));				// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 	}
 }
 

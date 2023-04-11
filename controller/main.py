@@ -38,9 +38,12 @@ def package(throttle: int, steering: int) -> bytes:
     # struct packet {
     #   uint8_t throttle;
     #   uint8_t steering;
-    #   uint16_t flags;  # not used at this time
+    #   uint16_t reverse: 1;
+    #   uint16_t flags : 15;  # not used at this time
     # }
-    pack_data = struct.pack("<BBH", throttle, steering, 0x0000)
+    flags = 0x0000
+    if throttle < 0: flags |= 0x1; throttle *= -1
+    pack_data = struct.pack("<BBH", throttle, steering, flags)
     pack_crc = struct.pack("<L", crc.checksum(pack_data[::-1]))  # flip bytes because python
     return pack_data + pack_crc
 
@@ -109,10 +112,10 @@ if __name__ == '__main__':
     try:
         while True:
             packet = package(
-                ps3.trigger_R.raw,    # 0 - 255
-                ps3.joystick_R.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
+                ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
+                ps3.joystick_L.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
             )
-            if display: print(f"{packet.hex()} -> {ps3.trigger_R.x}, {ps3.joystick_R.x}" + (" " * 50), end="\r")
+            if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}" + (" " * 50), end="\r")
             ser.write(packet)
             time.sleep(send_delay)
     except KeyboardInterrupt:  # stop gracefully
