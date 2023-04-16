@@ -34,7 +34,7 @@ def controller_update_loop(controller: PS3) -> None:
 #===============================================|
 # functions                                     |
 #==============================================/
-def package(throttle: int, steering: int) -> bytes:
+def package(throttle: int, steering: int, boost: bool) -> bytes:
     # struct packet {
     #   uint8_t throttle;
     #   uint8_t steering;
@@ -43,6 +43,7 @@ def package(throttle: int, steering: int) -> bytes:
     # }
     flags = 0x0000
     if throttle < 0: flags |= 0x1; throttle *= -1
+    if boost: flags |= 0x2;
     pack_data = struct.pack("<BBH", throttle, steering, flags)
     pack_crc = struct.pack("<L", crc.checksum(pack_data[::-1]))  # flip bytes because python
     return pack_data + pack_crc
@@ -113,7 +114,8 @@ if __name__ == '__main__':
         while True:
             packet = package(
                 ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
-                ps3.joystick_L.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
+                ps3.joystick_L.raw_x,  # 0 - 255  =[encoding]=>  -128 - 127
+                bool(ps3.x_button)  # boost
             )
             if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}" + (" " * 50), end="\r")
             ser.write(packet)
