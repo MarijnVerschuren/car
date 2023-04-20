@@ -5,6 +5,7 @@
 #include "pwm.h"
 #include "usart.h"
 #include "crc.h"
+#include "encoder.h"
 
 
 #ifdef STM32F4xx
@@ -24,7 +25,7 @@ volatile struct {
 volatile uint32_t misses = 0;
 
 
-extern void TIM3_IRQHandler(void) {
+extern void TIM1_UP_TIM10_IRQHandler(void) {
 	TIM3->SR &= ~TIM_SR_UIF; misses++;
 	uint32_t data, data_crc, crc;
 
@@ -58,28 +59,34 @@ int main(void) {
 
 	// UART input
 	enable_CRC();
-	uart_buf = new_buffer(1024);
+	uart_buf = new_buffer(128);
 	if (!uart_buf) { return -1; }  // allocation error
 	fconfig_UART(USART1_TX_A9, USART1_RX_A10, 9600, USART_OVERSAMPLING_16);
-	start_USART_receive_irq(USART1, uart_buf, 1);
+	start_USART_read_irq(USART1, uart_buf, 1);
 
 	// UART buffer polling interrupt
-	config_TIM(TIM3, 50, 2000);  // 500 Hz
-	start_TIM_update_irq(TIM3);  // TIM3_IRQHandler
-	start_TIM(TIM3);
+	config_TIM(TIM10, APB2_clock_frequency, 2000);  // 500 Hz
+	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
+	start_TIM(TIM10);
+
+	// encoders
+	config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);
+	config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
+	config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);
+	config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);
 
 	// PWM output
-	config_PWM(TIM2_CH1_A0, 100, 20000);		TIM2->CCR1 = 950;	// steering 750 - 950 - 1150
-	config_PWM(TIM2_CH3_B10, 100, 20000);	TIM2->CCR3 = 1500;	// throttle 1500 - 2500
+	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
+	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
 
 
 	// main loop
 	for(;;) {
-		if (misses > 250) { TIM2->CCR1 = 950; TIM2->CCR3 = 1500; continue; }  // disconnected
+		if (misses > 250) { TIM9->CCR1 = 950; TIM9->CCR2 = 1500; continue; }  // disconnected
 		uint32_t throttle = command.throttle;
 		if (command.boost) { throttle *= 3.5; }
-		TIM2->CCR3 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
-		TIM2->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
+		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
+		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
 	}
 }
 
