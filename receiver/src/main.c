@@ -5,13 +5,14 @@
 #include "pwm.h"
 #include "usart.h"
 #include "crc.h"
+#include "i2c.h"
 #include "encoder.h"
 
 
 #ifdef STM32F4xx
 
-#define HC12_SET_PORT GPIOA
-#define HC12_SET_PIN 7
+#define HC12_SET_PORT GPIOB
+#define HC12_SET_PIN 0
 
 
 io_buffer_t* uart_buf;
@@ -68,6 +69,9 @@ int main(void) {
 	config_TIM(TIM10, APB2_clock_frequency, 2000);  // 500 Hz
 	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
 	start_TIM(TIM10);
+
+	// I2C TODO: finish EEPROM library
+	config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
 
 	// encoders
 	config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);
