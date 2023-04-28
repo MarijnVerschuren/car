@@ -7,6 +7,7 @@
 #include "crc.h"
 #include "i2c.h"
 #include "encoder.h"
+#include "watchdog.h"
 
 
 #ifdef STM32F4xx
@@ -23,11 +24,10 @@ volatile struct {
 	uint16_t boost: 1;  // enable throttle multiplication
 	uint16_t flags : 14;
 } command;
-volatile uint32_t misses = 0;
 
 
 extern void TIM1_UP_TIM10_IRQHandler(void) {
-	TIM3->SR &= ~TIM_SR_UIF; misses++;
+	TIM10->SR &= ~TIM_SR_UIF;
 	uint32_t data, data_crc, crc;
 
 	while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
@@ -41,7 +41,7 @@ extern void TIM1_UP_TIM10_IRQHandler(void) {
 		CRC->DR = data;		// loading data into the crc device
 		crc = CRC->DR;		// reading the crc result
 
-		if (data_crc == crc) { misses = 0; *((uint32_t*)&command) = data; }
+		if (data_crc == crc) { reset_watchdog(); *((uint32_t*)&command) = data; }
 	}
 }
 
@@ -66,9 +66,13 @@ int main(void) {
 	start_USART_read_irq(USART1, uart_buf, 1);
 
 	// UART buffer polling interrupt
-	config_TIM(TIM10, APB2_clock_frequency, 2000);  // 500 Hz
+	config_TIM(TIM10, 100, 2000);  // 500 Hz
 	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
 	start_TIM(TIM10);
+
+	// watchdog
+	config_watchdog(0, 0xffful);  // 0.5s timeout
+	start_watchdog();
 
 	// I2C TODO: finish EEPROM library
 	config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
@@ -86,13 +90,13 @@ int main(void) {
 
 	// main loop
 	for(;;) {
-		if (misses > 250) { TIM9->CCR1 = 950; TIM9->CCR2 = 1500; continue; }  // disconnected
 		uint32_t throttle = command.throttle;
 		if (command.boost) { throttle *= 3.5; }
 		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
 	}
 }
+
 
 
 #elif defined(STM32F3xx)

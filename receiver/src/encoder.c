@@ -26,7 +26,7 @@ void config_encoder_S0S90(TIM_GPIO_t encoder_pin_a, TIM_GPIO_t encoder_pin_b) {
 	if (tim_a != tim_b) { return; }; tim = tim_a;
 	fconfig_GPIO(port_a, pin_a, GPIO_alt_func, GPIO_no_pull, GPIO_push_pull, GPIO_very_high_speed, af_a);
 	fconfig_GPIO(port_b, pin_b, GPIO_alt_func, GPIO_no_pull, GPIO_push_pull, GPIO_very_high_speed, af_b);
-	config_TIM(tim, 0, 0xfffful);
+	config_TIM(tim, 0, 65535);
 	tim->SMCR = 0b011ul;													// encoder mode 3
 	(&tim->CCMR1)[channel_a >> 1] &= ~(0xff << ((channel_a & 0b1u) << 3));	// clear CCMR channel config
 	(&tim->CCMR1)[channel_b >> 1] &= ~(0xff << ((channel_b & 0b1u) << 3));	// clear CCMR channel config
