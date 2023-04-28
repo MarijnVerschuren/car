@@ -71,6 +71,7 @@ int main(void) {
 	start_TIM(TIM10);
 
 	// watchdog
+	// 32kHz / (4 << prescaler)
 	config_watchdog(0, 0xffful);  // 0.5s timeout
 	start_watchdog();
 
