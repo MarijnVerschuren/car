@@ -83,11 +83,17 @@ int main(void) {
 	config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
 	config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);
 	config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);
+	start_encoder_S0S90(TIM2);
+	start_encoder_S0S90(TIM3);
+	start_encoder_S0S90(TIM4);
+	start_encoder_S0S90(TIM5);
+	// if (TIM2->SR & (TIM_SR_CC1OF | TIM_SR_CC2OF)) { /* encoder disconnected */ }
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
 	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
-
+	// TODO: FIX TIMERS 9 AND 10 (RCC flag not set)
+	
 
 	// main loop
 	for(;;) {
