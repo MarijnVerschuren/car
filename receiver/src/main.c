@@ -20,10 +20,16 @@ io_buffer_t* uart_buf;
 volatile struct {
 	uint8_t throttle;
 	uint8_t steering;
-	uint16_t reverse : 1;
-	uint16_t boost: 1;  // enable throttle multiplication
-	uint16_t flags : 14;
+	uint16_t reverse	: 1;
+	uint16_t boost		: 1;	// enable throttle multiplication
+	uint16_t flags		: 14;
 } command;
+volatile struct {
+	uint32_t rps_a;
+	uint32_t rps_b;
+	uint32_t rps_c;
+	uint32_t rps_d;
+} state;
 
 
 extern void TIM1_UP_TIM10_IRQHandler(void) {
@@ -44,6 +50,21 @@ extern void TIM1_UP_TIM10_IRQHandler(void) {
 		if (data_crc == crc) { reset_watchdog(); *((uint32_t*)&command) = data; }
 	}
 }
+
+extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {
+	TIM11->SR &= ~TIM_SR_UIF;
+	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
+	state.rps_a = TIM2->CNT; TIM2->CNT = 0;
+	state.rps_b = TIM3->CNT; TIM3->CNT = 0;
+	state.rps_c = TIM4->CNT; TIM4->CNT = 0;
+	state.rps_d = TIM5->CNT; TIM5->CNT = 0;
+	if (TIM2->SR & mask) { state.rps_a = 0xffffffff; TIM2->SR &= ~mask; }
+	if (TIM3->SR & mask) { state.rps_b = 0xffffffff; TIM3->SR &= ~mask; }
+	if (TIM4->SR & mask) { state.rps_c = 0xffffffff; TIM4->SR &= ~mask; }
+	if (TIM5->SR & mask) { state.rps_d = 0xffffffff; TIM5->SR &= ~mask; }
+	USART_write(USART1, &state, sizeof(state), 1);  // 16b no crc
+}
+
 
 int main(void) {
 	// sys_clock: 25Mhz / 15 * 120 / 2 = 100Mhz
@@ -87,7 +108,11 @@ int main(void) {
 	start_encoder_S0S90(TIM3);
 	start_encoder_S0S90(TIM4);
 	start_encoder_S0S90(TIM5);
-	// if (TIM2->SR & (TIM_SR_CC1OF | TIM_SR_CC2OF)) { /* encoder disconnected */ }
+
+	// encoder polling interrupt
+	config_TIM(TIM11, 100, 10000);  // 100 Hz
+	start_TIM_update_irq(TIM11);  // TIM1_TRG_COM_TIM11_IRQn
+	start_TIM(TIM11);
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
