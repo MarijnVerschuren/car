@@ -81,15 +81,15 @@ car project based on the STM32F411CEU6
 
 ## TIM
 > ### Config
-> | TIM   | clock src | prescaler | reload | mode                  | channels | function description                                |
-> |-------|-----------|-----------|--------|-----------------------|----------|-----------------------------------------------------|
-> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                                    |
-> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                                    |
-> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                                    |
-> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                                    |
-> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)                                   |
-> | TIM10 | APB2      | 100       | 2000   | -                     | -        | USART polling interrupt (500Hz)                     |
-> | TIM11 | APB2      | -         | -      | -                     | -        | not implemented yet (will be used to poll encoders) |
+> | TIM   | clock src | prescaler | reload | mode                  | channels | function description            |
+> |-------|-----------|-----------|--------|-----------------------|----------|---------------------------------|
+> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                |
+> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                |
+> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                |
+> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                |
+> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)               |
+> | TIM10 | APB2      | 100       | 2000   | -                     | -        | USART polling interrupt (500Hz) |
+> | TIM11 | APB2      | 100       | 10000  | -                     | -        | encoder polling (100Hz)         |
 > ##
 > ### Code
 > #### USART polling interrupt
@@ -130,6 +130,10 @@ car project based on the STM32F411CEU6
 >   config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
 >   config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);
 >   config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);
+>   start_encoder_S0S90(TIM2);
+>   start_encoder_S0S90(TIM3);
+>   start_encoder_S0S90(TIM4);
+>   start_encoder_S0S90(TIM5);
 > }
 > ```
 > 
