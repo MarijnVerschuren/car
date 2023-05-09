@@ -9,7 +9,7 @@
 void config_watchdog(uint8_t prescaler, uint16_t reload) {
 	IWDG->KR = 0x5555;  // enable access to PR and RLR
 	while (IWDG->SR & IWDG_SR_PVU);  // wait until the Prescaler Value Update (PVU) flag is reset
-	IWDG->PR = prescaler & 0x7ul;  // 32kHz / (4 << prescaler)
+	IWDG->PR = prescaler & 0x7ul;  // clk / (4 << prescaler)
 	while (IWDG->SR & IWDG_SR_RVU);  // wait until the Reload Value Update (RVU) flag is reset
 	IWDG->RLR = reload & 0xffful;
 }

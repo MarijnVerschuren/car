@@ -92,7 +92,6 @@ int main(void) {
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
 	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
-	// TODO: FIX TIMERS 9 AND 10 (RCC flag not set)
 	
 
 	// main loop
