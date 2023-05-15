@@ -62,7 +62,13 @@ extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {
 	if (TIM3->SR & mask) { state.rps_b = 0xffffffff; TIM3->SR &= ~mask; }
 	if (TIM4->SR & mask) { state.rps_c = 0xffffffff; TIM4->SR &= ~mask; }
 	if (TIM5->SR & mask) { state.rps_d = 0xffffffff; TIM5->SR &= ~mask; }
-	USART_write(USART1, &state, sizeof(state), 1);  // 16b no crc
+	reset_CRC();
+	CRC->DR = ((uint32_t*)&state)[0];
+	CRC->DR = ((uint32_t*)&state)[1];
+	CRC->DR = ((uint32_t*)&state)[2];
+	CRC->DR = ((uint32_t*)&state)[3];
+	USART_write(USART1, &state, sizeof(state), 1);
+	USART_write(USART1, &CRC->DR, sizeof(uint32_t), 1);
 }
 
 
@@ -91,11 +97,6 @@ int main(void) {
 	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
 	start_TIM(TIM10);
 
-	// watchdog
-	// 32kHz / (4 << prescaler)
-	config_watchdog(0, 0xffful);  // 0.5s timeout
-	start_watchdog();
-
 	// I2C TODO: finish EEPROM library
 	config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
 
@@ -113,6 +114,11 @@ int main(void) {
 	config_TIM(TIM11, 100, 10000);  // 100 Hz
 	start_TIM_update_irq(TIM11);  // TIM1_TRG_COM_TIM11_IRQn
 	start_TIM(TIM11);
+
+	// watchdog
+	// 32kHz / (4 << prescaler)
+	config_watchdog(0, 0xffful);  // 0.5s timeout
+	start_watchdog();
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150

@@ -13,7 +13,7 @@ from lib import *  # PS3
 
 #===============================================|
 # threading                                     |
-#==============================================/
+#===============================================|
 class thread(threading.Thread):
     def __init__(self, *args, **kwargs):
         super(thread, self).__init__(*args, **kwargs)
@@ -33,7 +33,7 @@ def controller_update_loop(controller: PS3) -> None:
 
 #===============================================|
 # functions                                     |
-#==============================================/
+#===============================================|
 def package(throttle: int, steering: int, boost: bool) -> bytes:
     # struct packet {
     #   uint8_t throttle;
@@ -46,12 +46,13 @@ def package(throttle: int, steering: int, boost: bool) -> bytes:
     if boost: flags |= 0x2;
     pack_data = struct.pack("<BBH", throttle, steering, flags)
     pack_crc = struct.pack("<L", crc.checksum(pack_data[::-1]))  # flip bytes because python
+
     return pack_data + pack_crc
 
 
 #===============================================|
 # entry                                         |
-#==============================================/
+#===============================================|
 if __name__ == '__main__':
     # commands
     if "-help" in sys.argv: print(
@@ -88,7 +89,8 @@ if __name__ == '__main__':
 
     # find inputs device
     for dev in devices:  # TODO: more devices
-        if dev.name == "Sony PLAYSTATION(R)3 Controller":
+        print(dev.name)
+        if "PS3" in dev.name:
             ps3 = PS3(dev); break
     else: raise Exception("device not found")
 
@@ -112,14 +114,20 @@ if __name__ == '__main__':
     # main loop
     try:
         while True:
+            sys.stdout.flush()
+            time.sleep(send_delay)
             packet = package(
                 ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
                 ps3.joystick_L.raw_x,  # 0 - 255  =[encoding]=>  -128 - 127
                 bool(ps3.x_button)  # boost
             )
-            if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}" + (" " * 50), end="\r")
+            if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}" + (" " * 50))  # end="\r"
             ser.write(packet)
-            time.sleep(send_delay)
+            if ser.inWaiting() > 20:
+                data = ser.read(16)
+                data_crc = ser.read(4)
+                if data_crc != struct.pack("<L", crc.checksum(data)): continue
+                print("\n".join(struct.unpack("<LLLL", data)))
     except KeyboardInterrupt:  # stop gracefully
         ps3_t.stop()
         os._exit(0)
