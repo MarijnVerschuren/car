@@ -89,8 +89,7 @@ if __name__ == '__main__':
 
     # find inputs device
     for dev in devices:  # TODO: more devices
-        print(dev.name)
-        if "PS3" in dev.name:
+        if dev.name == "Sony PLAYSTATION(R)3 Controller":
             ps3 = PS3(dev); break
     else: raise Exception("device not found")
 
@@ -112,22 +111,26 @@ if __name__ == '__main__':
     ser = serial.Serial(adapter, baud, timeout=timeout)
 
     # main loop
+    clear_line = "\033[1A\x1b[2K"
     try:
         while True:
             sys.stdout.flush()
             time.sleep(send_delay)
+            print(clear_line * 2, flush=True)
+
             packet = package(
                 ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
                 ps3.joystick_L.raw_x,  # 0 - 255  =[encoding]=>  -128 - 127
                 bool(ps3.x_button)  # boost
             )
-            if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}" + (" " * 50))  # end="\r"
+            if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}")
             ser.write(packet)
+            data = b"\x00" * 16
             if ser.inWaiting() > 20:
                 data = ser.read(16)
                 data_crc = ser.read(4)
                 if data_crc != struct.pack("<L", crc.checksum(data)): continue
-                print("\n".join(struct.unpack("<LLLL", data)))
+            print(" ".join([str(x) for x in struct.unpack("<LLLL", data)]), end="")
     except KeyboardInterrupt:  # stop gracefully
         ps3_t.stop()
         os._exit(0)
