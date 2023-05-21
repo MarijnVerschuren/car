@@ -10,8 +10,6 @@
 #include "watchdog.h"
 
 
-#ifdef STM32F4xx
-
 #define HC12_SET_PORT GPIOB
 #define HC12_SET_PIN 0
 
@@ -25,15 +23,15 @@ volatile struct {
 	uint16_t flags		: 14;
 } command;
 volatile struct {
-	uint32_t rps_a;
-	uint32_t rps_b;
-	uint32_t rps_c;
-	uint32_t rps_d;
+	uint32_t rpm_a;
+	uint32_t rpm_b;
+	uint32_t rpm_c;
+	uint32_t rpm_d;
 } state;
 
 
 extern void TIM1_UP_TIM10_IRQHandler(void) {
-	TIM10->SR &= ~TIM_SR_UIF;
+	TIM10->SR = 0x0;  // clear interrupt flags
 	uint32_t data, data_crc, crc;
 
 	while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
@@ -52,23 +50,16 @@ extern void TIM1_UP_TIM10_IRQHandler(void) {
 }
 
 extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {
-	TIM11->SR &= ~TIM_SR_UIF;
+	TIM11->SR = 0x0;  // clear interrupt flags
 	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
-	state.rps_a = TIM2->CNT; TIM2->CNT = 0;
-	state.rps_b = TIM3->CNT; TIM3->CNT = 0;
-	state.rps_c = TIM4->CNT; TIM4->CNT = 0;
-	state.rps_d = TIM5->CNT; TIM5->CNT = 0;
-	if (TIM2->SR & mask) { state.rps_a = 0xffffffff; TIM2->SR &= ~mask; }
-	if (TIM3->SR & mask) { state.rps_b = 0xffffffff; TIM3->SR &= ~mask; }
-	if (TIM4->SR & mask) { state.rps_c = 0xffffffff; TIM4->SR &= ~mask; }
-	if (TIM5->SR & mask) { state.rps_d = 0xffffffff; TIM5->SR &= ~mask; }
-	reset_CRC();
-	CRC->DR = ((uint32_t*)&state)[0];
-	CRC->DR = ((uint32_t*)&state)[1];
-	CRC->DR = ((uint32_t*)&state)[2];
-	CRC->DR = ((uint32_t*)&state)[3];
-	USART_write(USART1, &state, sizeof(state), 1);
-	USART_write(USART1, &CRC->DR, sizeof(uint32_t), 1);
+	state.rpm_a = TIM2->CNT; TIM2->CNT = 0;
+	state.rpm_b = TIM3->CNT; TIM3->CNT = 0;
+	state.rpm_c = TIM4->CNT; TIM4->CNT = 0;
+	state.rpm_d = TIM5->CNT; TIM5->CNT = 0;
+	if (TIM2->SR & mask) { state.rpm_a = 0xffffffff; TIM2->SR &= ~mask; }
+	if (TIM3->SR & mask) { state.rpm_b = 0xffffffff; TIM3->SR &= ~mask; }
+	if (TIM4->SR & mask) { state.rpm_c = 0xffffffff; TIM4->SR &= ~mask; }
+	if (TIM5->SR & mask) { state.rpm_d = 0xffffffff; TIM5->SR &= ~mask; }
 }
 
 
@@ -93,7 +84,7 @@ int main(void) {
 	start_USART_read_irq(USART1, uart_buf, 1);
 
 	// UART buffer polling interrupt
-	config_TIM(TIM10, 100, 2000);  // 500 Hz
+	config_TIM(TIM10, 100, 10000);  // 100 Hz
 	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
 	start_TIM(TIM10);
 
@@ -117,13 +108,12 @@ int main(void) {
 
 	// watchdog
 	// 32kHz / (4 << prescaler)
-	config_watchdog(0, 0xffful);  // 0.5s timeout
+	config_watchdog(1, 0xffful);  // 1s timeout
 	start_watchdog();
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
 	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
-	
 
 	// main loop
 	for(;;) {
@@ -133,11 +123,3 @@ int main(void) {
 		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
 	}
 }
-
-
-
-#elif defined(STM32F3xx)
-/* STM32F3xx:
- * 	_WFI(); works here without any additional config
- */
-#endif
