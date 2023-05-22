@@ -1,3 +1,11 @@
+// RTOS
+#include <FreeRTOSConfig.h>
+#include <FreeRTOS.h>
+#include <task.h>
+#include <queue.h>
+#include <semphr.h>
+
+// CMSIS
 #include "main.h"
 #include "sys.h"
 #include "gpio.h"
@@ -14,6 +22,7 @@
 #define HC12_SET_PIN 0
 
 
+/* variables */
 io_buffer_t* uart_buf;
 volatile struct {
 	uint8_t throttle;
@@ -30,6 +39,7 @@ volatile struct {
 } state;
 
 
+/* CMSIS */
 extern void TIM1_UP_TIM10_IRQHandler(void) {
 	TIM10->SR = 0x0;  // clear interrupt flags
 	uint32_t data, data_crc, crc;
@@ -64,12 +74,13 @@ extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {
 
 
 int main(void) {
+	/* CMSIS */
 	// sys_clock: 25Mhz / 15 * 120 / 2 = 100Mhz
 	SYS_CLK_Config_t* sys_config = new_SYS_CLK_config();
 	set_SYS_PLL_config(sys_config, 15, 120, PLL_P_DIV2, 0, PLL_SRC_HSE);
 	set_SYS_CLOCK_config(sys_config, SYS_CLK_SRC_PLL, AHB_CLK_NO_DIV, APBx_CLK_DIV2, APBx_CLK_NO_DIV, 0);
 	set_SYS_FLASH_config(sys_config, FLASH_LATENCY4, 1, 1, 1);  // latency is set automatically (when need be)
-	set_SYS_tick_config(sys_config, 1, 1);
+	set_SYS_tick_config(sys_config, 1, 1, RTOS_tick_handler);
 	sys_clock_init(sys_config); free(sys_config);
 
 	// GPIO output

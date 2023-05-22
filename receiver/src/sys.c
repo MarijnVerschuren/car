@@ -4,7 +4,7 @@
 #include "sys.h"
 
 
-/*!< variables */
+/*!< shared variables */
 uint32_t PLL_clock_frequency = 0;
 uint32_t AHB_clock_frequency = 16000000;
 uint32_t APB1_clock_frequency = 16000000;
@@ -16,8 +16,12 @@ uint32_t SYS_clock_frequency = 16000000;
 volatile uint64_t tick = 0;
 
 
+/*!< static variables */
+static sys_tick_t tick_func = NULL;
+
+
 /*!< interrupts */
-void SysTick_Handler(void) { tick++; }
+void SysTick_Handler(void) { tick++; if (tick_func) { tick_func(); } }
 
 
 /*!< init / enable / disable */
@@ -78,9 +82,10 @@ void set_SYS_MCO_config(SYS_CLK_Config_t* config, MCO1_CLK_Source_t MCO1_src, MC
 	config->MCO2_source =		MCO2_src;
 	config->MCO2_prescaler =	MCO2_prescaler;
 }
-void set_SYS_tick_config(SYS_CLK_Config_t* config, uint8_t enable, uint8_t enable_irq) {
+void set_SYS_tick_config(SYS_CLK_Config_t* config, uint8_t enable, uint8_t enable_irq, sys_tick_t tick_handler) {
 	config->SYS_tick_enable =			enable;
 	config->SYS_tick_interrupt_enable =	enable_irq;
+	tick_func =							tick_handler;
 }
 void set_SYS_power_config(SYS_CLK_Config_t* config, SYS_Power_t power) {
 	config->SYS_power = power;
@@ -88,6 +93,9 @@ void set_SYS_power_config(SYS_CLK_Config_t* config, SYS_Power_t power) {
 
 void sys_clock_init(SYS_CLK_Config_t* config) {
 	PLL_clock_frequency = ((16000000 + (9000000 * config->PLL_source)) / config->PLL_M) * (config->PLL_N / (2 * (config->PLL_P + 1)));
+	// round PLL clock frequency to 1000
+	if (PLL_clock_frequency % 1000) { PLL_clock_frequency += 1000; }
+	PLL_clock_frequency -= PLL_clock_frequency % 1000;
 	RCC->PLLCFGR = (																									/*
 				PLL_M: division factor for the main PLL and audio PLL (PLLI2S) input clock. Info:
 					the software has to set these bits correctly to ensure that the VCO
@@ -159,6 +167,16 @@ void sys_clock_init(SYS_CLK_Config_t* config) {
 	else									{ APB2_clock_frequency = SYS_clock_frequency; }
 	RTC_clock_frequency = 0;
 	if (config->RTC_prescaler > 1)			{ RTC_clock_frequency = SYS_clock_frequency / config->RTC_prescaler; }
+
+	// round clock frequencies to 1000
+	if (AHB_clock_frequency % 1000) { AHB_clock_frequency += 1000; }
+	if (APB1_clock_frequency % 1000) { APB1_clock_frequency += 1000; }
+	if (APB2_clock_frequency % 1000) { APB2_clock_frequency += 1000; }
+	if (RTC_clock_frequency % 1000) { RTC_clock_frequency += 1000; }
+	AHB_clock_frequency -= AHB_clock_frequency % 1000;
+	APB1_clock_frequency -= APB1_clock_frequency % 1000;
+	APB2_clock_frequency -= APB2_clock_frequency % 1000;
+	RTC_clock_frequency -= RTC_clock_frequency % 1000;
 
 	uint8_t flash_latency;
 	switch (config->SYS_power) {
@@ -243,8 +261,8 @@ void sys_clock_init(SYS_CLK_Config_t* config) {
 	SysTick->LOAD = (AHB_clock_frequency / 8000) - 1;						/* set reload register */
 	SysTick->VAL  = 0;														/* load counter value  */
 	SysTick->CTRL = (														/* start SysTick timer */
-		(SysTick_CTRL_ENABLE_Msk * config->SYS_tick_enable)				|
-		(SysTick_CTRL_TICKINT_Msk * config->SYS_tick_interrupt_enable)
+			(SysTick_CTRL_ENABLE_Msk * config->SYS_tick_enable)				|
+			(SysTick_CTRL_TICKINT_Msk * config->SYS_tick_interrupt_enable)
 	);
 	// set IRQ priority
 	SCB->SHP[(SysTick_IRQn & 0xFUL) - 4UL] = ((((1UL << __NVIC_PRIO_BITS) - 1UL) << (8U - __NVIC_PRIO_BITS)) & 0xFFUL);

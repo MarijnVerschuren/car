@@ -1,7 +1,8 @@
 # shellcheck disable=SC2045
 
+pio init --ide clion
 rm -rf update
-git clone https://github.com/MarijnVerschuren/STM32F_CMSIS.git update
+git clone https://github.com/MarijnVerschuren/STM32F_CMSIS_RTOS update
 
 for file in $(ls update/src); do
     if [ $file != "main.c" ]; then
