@@ -80,7 +80,7 @@ int main(void) {
 	set_SYS_PLL_config(sys_config, 15, 120, PLL_P_DIV2, 0, PLL_SRC_HSE);
 	set_SYS_CLOCK_config(sys_config, SYS_CLK_SRC_PLL, AHB_CLK_NO_DIV, APBx_CLK_DIV2, APBx_CLK_NO_DIV, 0);
 	set_SYS_FLASH_config(sys_config, FLASH_LATENCY4, 1, 1, 1);  // latency is set automatically (when need be)
-	set_SYS_tick_config(sys_config, 1, 1, RTOS_tick_handler);
+	set_SYS_tick_config(sys_config, 1, 1, NULL);
 	sys_clock_init(sys_config); free(sys_config);
 
 	// GPIO output
@@ -115,16 +115,21 @@ int main(void) {
 	// encoder polling interrupt
 	config_TIM(TIM11, 100, 10000);  // 100 Hz
 	start_TIM_update_irq(TIM11);  // TIM1_TRG_COM_TIM11_IRQn
-	start_TIM(TIM11);
+	//start_TIM(TIM11);
 
 	// watchdog
 	// 32kHz / (4 << prescaler)
 	config_watchdog(1, 0xffful);  // 1s timeout
-	start_watchdog();
+	//start_watchdog();
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
 	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
+
+	volatile uint32_t* a = &TIM2->CNT;
+	volatile uint32_t* b = &TIM3->CNT;
+	volatile uint32_t* c = &TIM4->CNT;
+	volatile uint32_t* d = &TIM5->CNT;
 
 	// main loop
 	for(;;) {
