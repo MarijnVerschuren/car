@@ -81,15 +81,15 @@ car project based on the STM32F411CEU6
 
 ## TIM
 > ### Config
-> | TIM   | clock src | prescaler | reload | mode                  | channels | function description            |
-> |-------|-----------|-----------|--------|-----------------------|----------|---------------------------------|
-> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                |
-> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                |
-> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                |
-> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                |
-> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)               |
-> | TIM10 | APB2      | 100       | 2000   | -                     | -        | USART polling interrupt (500Hz) |
-> | TIM11 | APB2      | 100       | 10000  | -                     | -        | encoder polling (100Hz)         |
+> | TIM   | clock src | prescaler | reload | mode                  | channels | function description             |
+> |-------|-----------|-----------|--------|-----------------------|----------|----------------------------------|
+> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                 |
+> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                 |
+> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                 |
+> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                 |
+> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)                |
+> | TIM10 | APB2      | 100       | 2000   | -                     | -        | Sensor polling interrupt (500Hz) |
+> | TIM11 | APB2      | -         | -      | -                     | -        | -                                |  
 > ##
 > ### Code
 > #### USART polling interrupt
