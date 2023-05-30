@@ -42,6 +42,7 @@ volatile struct {
 	int32_t rpm_c;
 	int32_t rpm_d;
 } state;
+uint32_t throttle;
 
 
 /* RTOS */
@@ -65,17 +66,13 @@ void communicate(void* memory_pool) {
 			if (data_crc == crc) {
 				reset_watchdog();
 				*((uint32_t*)&command) = data;
+				taskYIELD()
 			}
 		}
 	}
 }
 
 void run(void* memory_pool) {
-	uart_buf = new_buffer(128);
-	if (!uart_buf) { for(;;); }  // allocation error
-	start_USART_read_irq(USART1, uart_buf, 1);
-
-	uint32_t throttle;
 	for(;;) {  // task loop
 		throttle = command.throttle;
 		if (command.boost) { throttle *= 3.5; }
@@ -115,6 +112,9 @@ int main(void) {
 	// UART and CRC
 	enable_CRC();
 	fconfig_UART(USART1_TX_A9, USART1_RX_A10, 9600, USART_OVERSAMPLING_16);
+	uart_buf = new_buffer(128);
+	if (!uart_buf) { for(;;); }  // allocation error
+	start_USART_read_irq(USART1, uart_buf, 1);
 
 	// UART buffer polling interrupt
 	config_TIM(TIM10, 100, 10000);  // 100 Hz
@@ -136,7 +136,7 @@ int main(void) {
 
 	// watchdog (32kHz / (4 << prescaler))
 	config_watchdog(1, 0xffful);  // 1s timeout
-	//start_watchdog();
+	start_watchdog();
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
@@ -149,7 +149,7 @@ int main(void) {
 			"communicate",
 			configMINIMAL_STACK_SIZE,
 			NULL,
-			tskIDLE_PRIORITY + 1,		// must be highest priority
+			tskIDLE_PRIORITY,		// priorities must be equal because this task will eat up all the time otherwise
 			communicate_task
 	) != pdPASS) {
 		for(;;);
@@ -164,9 +164,21 @@ int main(void) {
 	) != pdPASS) {
 		for(;;);
 	}
+	/* if (xTaskCreate(
+			traction_control,
+			"traction_control",
+			configMINIMAL_STACK_SIZE,
+			NULL,
+			tskIDLE_PRIORITY,
+			traction_control_task
+	) != pdPASS) {
+		for(;;);
+	} */
+	// TODO: find out how to fix the issue where "communicate" takes all task time when ran with higher priority (which it does have conceptually)
 
 	// start scheduler
-	vTaskStartScheduler();
+	xPortStartScheduler();
+	//vTaskStartScheduler();
 
 	return 0;
 }
