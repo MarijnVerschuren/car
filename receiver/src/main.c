@@ -23,6 +23,8 @@
 
 
 /* variables */
+SYS_CLK_Config_t sys_config;
+
 io_buffer_t* uart_buf;
 TaskHandle_t* communicate_task;
 TaskHandle_t* run_task;
@@ -42,7 +44,7 @@ volatile struct {
 } state;
 
 
-/* CMSIS */
+/* RTOS */
 void communicate(void* memory_pool) {
 	uint32_t data, data_crc, crc;
 	for(;;) {  // task loop
@@ -83,8 +85,9 @@ void run(void* memory_pool) {
 }
 
 
-extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {
-	TIM11->SR = 0x0;  // clear interrupt flags
+/* CMSIS */
+extern void TIM1_UP_TIM10_IRQHandler(void) {
+	TIM10->SR = 0x0;  // clear interrupt flags
 	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
 	state.rpm_a = TIM2->CNT; TIM2->CNT = 0;
 	state.rpm_b = TIM3->CNT; TIM3->CNT = 0;
@@ -96,17 +99,14 @@ extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {
 	if (TIM5->SR & mask) { state.rpm_d = 0; TIM5->SR &= ~mask; }
 }
 
-
 int main(void) {
 	/* CMSIS */
 	// sys_clock: 25Mhz / 15 * 120 / 2 = 100Mhz
-	//SYS_CLK_Config_t* sys_config = new_SYS_CLK_config();
-	SYS_CLK_Config_t sys_config;
 	set_SYS_PLL_config(&sys_config, 15, 120, PLL_P_DIV2, 0, PLL_SRC_HSE);
 	set_SYS_CLOCK_config(&sys_config, SYS_CLK_SRC_PLL, AHB_CLK_NO_DIV, APBx_CLK_DIV2, APBx_CLK_NO_DIV, 0);
 	set_SYS_FLASH_config(&sys_config, FLASH_LATENCY4, 1, 1, 1);  // latency is set automatically (when need be)
 	set_SYS_tick_config(&sys_config, 1, 1, RTOS_tick_handler);
-	sys_clock_init(&sys_config); //free(sys_config);
+	sys_clock_init(&sys_config);
 
 	// GPIO output
 	config_GPIO(HC12_SET_PORT, HC12_SET_PIN, GPIO_output, GPIO_no_pull, GPIO_open_drain);  // OD IMPORTANT!!!
@@ -134,8 +134,7 @@ int main(void) {
 	start_encoder_S0S90(TIM4);
 	start_encoder_S0S90(TIM5);
 
-	// watchdog
-	// 32kHz / (4 << prescaler)
+	// watchdog (32kHz / (4 << prescaler))
 	config_watchdog(1, 0xffful);  // 1s timeout
 	//start_watchdog();
 
