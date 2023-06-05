@@ -2,8 +2,6 @@
 #include <FreeRTOSConfig.h>
 #include <FreeRTOS.h>
 #include <task.h>
-#include <queue.h>
-#include <semphr.h>
 
 // CMSIS
 #include "main.h"
@@ -26,8 +24,9 @@
 SYS_CLK_Config_t sys_config;
 
 io_buffer_t* uart_buf;
-TaskHandle_t* communicate_task;
 TaskHandle_t* run_task;
+TaskHandle_t* traction_control_task;
+TaskHandle_t* write_task;
 
 volatile struct {
 	uint8_t throttle;
@@ -46,54 +45,66 @@ uint32_t throttle;
 
 
 /* RTOS */
-void communicate(void* memory_pool) {
-	uint32_t data, data_crc, crc;
+void write(void* args) {  // idle task
 	for(;;) {  // task loop
-		while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
-			uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
-			if (uart_buf->size - uart_buf->o < 8) {
-				uart_buf->o = uart_buf->size - 1;
-				continue;
-			}
-
-			data = *((uint32_t*)(uart_buf->ptr + uart_buf->o));
-			data_crc = *((uint32_t*)(uart_buf->ptr + uart_buf->o + 4));
-
-			reset_CRC();
-			CRC->DR = data;		// loading data into the crc device
-			crc = CRC->DR;		// reading the crc result
-
-			if (data_crc == crc) {
-				reset_watchdog();
-				*((uint32_t*)&command) = data;
-				taskYIELD()
-			}
-		}
+		USART_write(USART1, (uint8_t*)&state, sizeof(state), 100);
 	}
 }
 
-void run(void* memory_pool) {
+void run(void* args) {
 	for(;;) {  // task loop
 		throttle = command.throttle;
 		if (command.boost) { throttle *= 3.5; }
 		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
+		vTaskDelay(5);  // 200 Hz
+	}
+}
+
+void traction_control(void* args) {
+	for(;;) {  // task loop
+		// TODO
+		vTaskDelay(10);  // 100 Hz
 	}
 }
 
 
 /* CMSIS */
-extern void TIM1_UP_TIM10_IRQHandler(void) {
+extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
 	TIM10->SR = 0x0;  // clear interrupt flags
 	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
-	state.rpm_a = TIM2->CNT; TIM2->CNT = 0;
-	state.rpm_b = TIM3->CNT; TIM3->CNT = 0;
-	state.rpm_c = TIM4->CNT; TIM4->CNT = 0;
-	state.rpm_d = TIM5->CNT; TIM5->CNT = 0;
-	if (TIM2->SR & mask) { state.rpm_a = 0; TIM2->SR &= ~mask; }
+	state.rpm_a = TIM2->CNT; //TIM2->CNT = 0;
+	state.rpm_b = TIM3->CNT; //TIM3->CNT = 0;
+	state.rpm_c = TIM4->CNT; //TIM4->CNT = 0;
+	state.rpm_d = TIM5->CNT; //TIM5->CNT = 0;
+	/*if (TIM2->SR & mask) { state.rpm_a = 0; TIM2->SR &= ~mask; }
 	if (TIM3->SR & mask) { state.rpm_b = 0; TIM3->SR &= ~mask; }
 	if (TIM4->SR & mask) { state.rpm_c = 0; TIM4->SR &= ~mask; }
-	if (TIM5->SR & mask) { state.rpm_d = 0; TIM5->SR &= ~mask; }
+	if (TIM5->SR & mask) { state.rpm_d = 0; TIM5->SR &= ~mask; }*/
+}
+
+extern void TIM1_UP_TIM10_IRQHandler(void) {  // USART buffer polling
+	TIM11->SR &= ~TIM_SR_UIF;  // clear interrupt flag
+	uint32_t data, data_crc, crc;
+	while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
+		uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
+		if (uart_buf->size - uart_buf->o < 8) {
+			uart_buf->o = uart_buf->size - 1;
+			continue;
+		}
+
+		data = *((uint32_t*)(uart_buf->ptr + uart_buf->o));
+		data_crc = *((uint32_t*)(uart_buf->ptr + uart_buf->o + 4));
+
+		reset_CRC();
+		CRC->DR = data;		// loading data into the crc device
+		crc = CRC->DR;		// reading the crc result
+
+		if (data_crc == crc) {
+			reset_watchdog();
+			*((uint32_t*)&command) = data;
+		}
+	}
 }
 
 int main(void) {
@@ -116,10 +127,15 @@ int main(void) {
 	if (!uart_buf) { for(;;); }  // allocation error
 	start_USART_read_irq(USART1, uart_buf, 1);
 
-	// UART buffer polling interrupt
+	// Sensor polling interrupt
 	config_TIM(TIM10, 100, 10000);  // 100 Hz
 	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
 	start_TIM(TIM10);
+
+	// USART polling interrupt
+	config_TIM(TIM11, 100, 10000);  // 100 Hz
+	start_TIM_update_irq(TIM11);  //
+	start_TIM(TIM11);
 
 	// I2C
 	config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
@@ -135,8 +151,8 @@ int main(void) {
 	start_encoder_S0S90(TIM5);
 
 	// watchdog (32kHz / (4 << prescaler))
-	config_watchdog(1, 0xffful);  // 1s timeout
-	start_watchdog();
+	config_watchdog(0, 0xffful);  // 0.5s timeout
+	//start_watchdog();
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
@@ -145,40 +161,36 @@ int main(void) {
 	/* RTOS */
 	// create tasks
 	if (xTaskCreate(
-			communicate,
-			"communicate",
-			configMINIMAL_STACK_SIZE,
-			NULL,
-			tskIDLE_PRIORITY,		// priorities must be equal because this task will eat up all the time otherwise
-			communicate_task
-	) != pdPASS) {
-		for(;;);
-	}
-	if (xTaskCreate(
 			run,
 			"run",
 			configMINIMAL_STACK_SIZE,
 			NULL,
-			tskIDLE_PRIORITY,
+			tskIDLE_PRIORITY + 2,
 			run_task
 	) != pdPASS) {
 		for(;;);
 	}
-	/* if (xTaskCreate(
+	if (xTaskCreate(
 			traction_control,
 			"traction_control",
 			configMINIMAL_STACK_SIZE,
 			NULL,
-			tskIDLE_PRIORITY,
+			tskIDLE_PRIORITY + 1,
 			traction_control_task
 	) != pdPASS) {
 		for(;;);
-	} */
-	// TODO: find out how to fix the issue where "communicate" takes all task time when ran with higher priority (which it does have conceptually)
+	}
+	if (xTaskCreate(
+			write,
+			"write",
+			configMINIMAL_STACK_SIZE,
+			NULL,
+			tskIDLE_PRIORITY,
+			write_task
+	) != pdPASS) {
+		for(;;);
+	}
 
 	// start scheduler
-	xPortStartScheduler();
-	//vTaskStartScheduler();
-
-	return 0;
+	return xPortStartScheduler();
 }

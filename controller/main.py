@@ -126,10 +126,10 @@ if __name__ == '__main__':
             if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}")
             ser.write(packet)
             data = b"\x00" * 16
-            if ser.inWaiting() > 20:
+            if ser.inWaiting() >= 16:
                 data = ser.read(16)
-                data_crc = ser.read(4)
-                if data_crc != struct.pack("<L", crc.checksum(data)): continue
+                #data_crc = ser.read(4)
+                #if data_crc != struct.pack("<L", crc.checksum(data)): continue
             print(" ".join([str(x) for x in struct.unpack("<LLLL", data)]), end="")
     except KeyboardInterrupt:  # stop gracefully
         ps3_t.stop()

@@ -15,6 +15,7 @@ car project based on the STM32F411CEU6
 # Software
 * sys_clock
 * GPIO
+* RTOS
 * TIM
   * PWM
   * Encoder (mode)
@@ -40,13 +41,13 @@ car project based on the STM32F411CEU6
 > ### Code
 > ```C
 > int main(void) {
->   // sys_clock: 25Mhz / 15 * 120 / 2 = 100Mhz
->   SYS_CLK_Config_t* sys_config = new_SYS_CLK_config();
->   set_SYS_PLL_config(sys_config, 15, 120, PLL_P_DIV2, 0, PLL_SRC_HSE);
->   set_SYS_CLOCK_config(sys_config, SYS_CLK_SRC_PLL, AHB_CLK_NO_DIV, APBx_CLK_DIV2, APBx_CLK_NO_DIV, 0);
->   set_SYS_FLASH_config(sys_config, FLASH_LATENCY4, 1, 1, 1);  // latency is set automatically (when need be)
->   set_SYS_tick_config(sys_config, 1, 1);
->   sys_clock_init(sys_config); free(sys_config);
+>     // sys_clock: 25Mhz / 15 * 120 / 2 = 100Mhz
+>     SYS_CLK_Config_t* sys_config = new_SYS_CLK_config();
+>     set_SYS_PLL_config(sys_config, 15, 120, PLL_P_DIV2, 0, PLL_SRC_HSE);
+>     set_SYS_CLOCK_config(sys_config, SYS_CLK_SRC_PLL, AHB_CLK_NO_DIV, APBx_CLK_DIV2, APBx_CLK_NO_DIV, 0);
+>     set_SYS_FLASH_config(sys_config, FLASH_LATENCY4, 1, 1, 1);  // latency is set automatically (when need be)
+>     set_SYS_tick_config(sys_config, 1, 1);
+>     sys_clock_init(sys_config); free(sys_config);
 > }
 > ```
 
@@ -74,22 +75,63 @@ car project based on the STM32F411CEU6
 > Code for the alternate function pins is displayed under the section for said peripheral
 > ```C
 > int main(void) {
->   config_GPIO(HC12_SET_PORT, HC12_SET_PIN, GPIO_output, GPIO_no_pull, GPIO_open_drain);  // OD IMPORTANT!!!
->   GPIO_write(HC12_SET_PORT, HC12_SET_PIN, 1);  // high to disable settings mode
+>     config_GPIO(HC12_SET_PORT, HC12_SET_PIN, GPIO_output, GPIO_no_pull, GPIO_open_drain);  // OD IMPORTANT!!!
+>     GPIO_write(HC12_SET_PORT, HC12_SET_PIN, 1);  // high to disable settings mode
+> }
+> ```
+
+## RTOS
+> ### Config
+> | task             | priority | function description                                      |
+> |------------------|----------|-----------------------------------------------------------|
+> | run              | idle + 2 | Task that generates PWM signals based on incoming command |
+> | traction_control | idle + 1 | Task for the traction control PID loop                    |
+> | write            | idle     | Task that sends the current speed of each tire            |
+> ##
+> ### Code
+> #### run task
+> this task looks at the 'command' struct which is updated from the USART polling interrupt (see TIM and USART) and
+> generates the correct PWM signals based on it
+> ``` C
+> void run(void* args) {
+>     for(;;) {  // task loop
+>         throttle = command.throttle;
+>         if (command.boost) { throttle *= 3.5; }
+>         TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
+>         TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
+>         vTaskDelay(5);  // 200 Hz
+>     }
+> }
+> 
+> int main(void) {
+>     // create tasks
+>     if (xTaskCreate(
+>         run,
+>         "run",
+>         configMINIMAL_STACK_SIZE,
+>         NULL,
+>         tskIDLE_PRIORITY + 2,
+>         run_task
+>     ) != pdPASS) {
+>         for(;;);
+>     }
+>
+>     // start scheduler
+>     return xPortStartScheduler();
 > }
 > ```
 
 ## TIM
 > ### Config
-> | TIM   | clock src | prescaler | reload | mode                  | channels | function description             |
-> |-------|-----------|-----------|--------|-----------------------|----------|----------------------------------|
-> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                 |
-> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                 |
-> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                 |
-> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                 |
-> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)                |
-> | TIM10 | APB2      | 100       | 10000  | -                     | -        | Sensor polling interrupt (100Hz) |
-> | TIM11 | APB2      | -         | -      | -                     | -        | -                                |  
+> | TIM   | clock src | prescaler | reload | mode                  | channels | function description             | interrupt                     | interrupt priority |
+> |-------|-----------|-----------|--------|-----------------------|----------|----------------------------------|-------------------------------|--------------------|
+> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                 | -                             | -                  |
+> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                 | -                             | -                  |
+> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                 | -                             | -                  |
+> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                 | -                             | -                  |
+> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)                | -                             | -                  |
+> | TIM10 | APB2      | 100       | 10000  | -                     | -        | USART polling interrupt (100Hz)  | TIM1_UP_TIM10_IRQHandler      | 25                 |
+> | TIM11 | APB2      | 100       | 10000  | -                     | -        | Sensor polling interrupt (100Hz) | TIM1_TRG_COM_TIM11_IRQHandler | 26                 |
 > ##
 > ### Code
 > #### USART polling interrupt
@@ -97,22 +139,22 @@ car project based on the STM32F411CEU6
 > The validity of a message is checked by the CRC module and disconnects are detected by using the watchdog.
 > ```C
 > extern void TIM1_UP_TIM10_IRQHandler(void) {
->   TIM10->SR &= ~TIM_SR_UIF;
->   uint32_t data, data_crc, crc;
+>     TIM10->SR &= ~TIM_SR_UIF;
+>     uint32_t data, data_crc, crc;
 >
->   while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
->	    uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
->	    if (uart_buf->size - uart_buf->o < 8) { uart_buf->o = uart_buf->size - 1; continue;	}
+>     while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
+>         uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
+>         if (uart_buf->size - uart_buf->o < 8) { uart_buf->o = uart_buf->size - 1; continue;	}
 >
->	    data = *((uint32_t*)(uart_buf->ptr + uart_buf->o));
->	    data_crc = *((uint32_t*)(uart_buf->ptr + uart_buf->o + 4));
+>         data = *((uint32_t*)(uart_buf->ptr + uart_buf->o));
+>         data_crc = *((uint32_t*)(uart_buf->ptr + uart_buf->o + 4));
 >
->	    reset_CRC();
->	    CRC->DR = data;		// loading data into the crc device
->	    crc = CRC->DR;		// reading the crc result
->
->	    if (data_crc == crc) { reset_watchdog(); *((uint32_t*)&command) = data; }
->   }
+>         reset_CRC();
+>         CRC->DR = data;		// loading data into the crc device
+>         crc = CRC->DR;		// reading the crc result
+> 
+>         if (data_crc == crc) { reset_watchdog(); *((uint32_t*)&command) = data; }
+>     }
 > }
 > 
 > int main(void) {
@@ -126,14 +168,14 @@ car project based on the STM32F411CEU6
 > Encoder readings are stored in: `TIMx->CNT`
 > ```C
 > int main(void) {
->   config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);
->   config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
->   config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);
->   config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);
->   start_encoder_S0S90(TIM2);
->   start_encoder_S0S90(TIM3);
->   start_encoder_S0S90(TIM4);
->   start_encoder_S0S90(TIM5);
+>     config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);
+>     config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
+>     config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);
+>     config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);
+>     start_encoder_S0S90(TIM2);
+>     start_encoder_S0S90(TIM3);
+>     start_encoder_S0S90(TIM4);
+>     start_encoder_S0S90(TIM5);
 > }
 > ```
 > 
@@ -141,8 +183,8 @@ car project based on the STM32F411CEU6
 > PWM can be set by writing to `TIMx->CCRy` where `y` is the channel number
 > ```C
 > int main(void) {
->   config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
->   config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
+>     config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
+>     config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
 > }
 > ```
 
@@ -159,10 +201,10 @@ car project based on the STM32F411CEU6
 > This buffer is later checked for messages.
 > ```C
 > int main(void) {
->   uart_buf = new_buffer(128);
->   if (!uart_buf) { return -1; }  // allocation error
->   fconfig_UART(USART1_TX_A9, USART1_RX_A10, 9600, USART_OVERSAMPLING_16);
->   start_USART_read_irq(USART1, uart_buf, 1);
+>     uart_buf = new_buffer(128);
+>     if (!uart_buf) { return -1; }  // allocation error
+>     fconfig_UART(USART1_TX_A9, USART1_RX_A10, 9600, USART_OVERSAMPLING_16);
+>     start_USART_read_irq(USART1, uart_buf, 1);
 > }
 > ```
 
@@ -175,7 +217,7 @@ car project based on the STM32F411CEU6
 > ### Code
 > ```C
 > int main(void) {
->   config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
+>     config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
 > }
 > ```
 
@@ -190,7 +232,7 @@ car project based on the STM32F411CEU6
 > See code under TIM - USART polling interrupt.
 > ```C
 > int main (void) {
->   enable_CRC();
+>     enable_CRC();
 > }
 > ```
 
@@ -206,8 +248,8 @@ car project based on the STM32F411CEU6
 > See code under TIM - USART polling interrupt.
 > ```C
 > int main(void) {
->   // 32kHz / (4 << prescaler)
->   config_watchdog(0, 0xffful);  // 0.5s timeout
->   start_watchdog();
+>     // 32kHz / (4 << prescaler)
+>     config_watchdog(0, 0xffful);  // 0.5s timeout
+>     start_watchdog();
 > }
 > ```
