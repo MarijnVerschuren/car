@@ -84,9 +84,9 @@ car project based on the STM32F411CEU6
 > ### Config
 > | task             | priority | function description                                      |
 > |------------------|----------|-----------------------------------------------------------|
-> | run              | idle + 2 | Task that generates PWM signals based on incoming command |
-> | traction_control | idle + 1 | Task for the traction control PID loop                    |
-> | write            | idle     | Task that sends the current speed of each tire            |
+> | run              | idle     | Task that generates PWM signals based on incoming command |
+> | write            | idle + 1 | Task that sends the current speed of each tire            |
+> | traction_control | idle + 2 | Task for the traction control PID loop                    |
 > ##
 > ### Code
 > #### run task

@@ -111,12 +111,11 @@ if __name__ == '__main__':
     ser = serial.Serial(adapter, baud, timeout=timeout)
 
     # main loop
-    clear_line = "\033[1A\x1b[2K"
     try:
         while True:
             sys.stdout.flush()
             time.sleep(send_delay)
-            print(clear_line * 2, flush=True)
+            print("\033[1A\x1b[2K" * 2, flush=True)
 
             packet = package(
                 ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
@@ -130,7 +129,7 @@ if __name__ == '__main__':
                 data = ser.read(16)
                 #data_crc = ser.read(4)
                 #if data_crc != struct.pack("<L", crc.checksum(data)): continue
-            print(" ".join([str(x) for x in struct.unpack("<LLLL", data)]), end="")
+            print(" ".join([hex(x) for x in struct.unpack("<LLLL", data)]), end=" " * 24)
     except KeyboardInterrupt:  # stop gracefully
         ps3_t.stop()
         os._exit(0)

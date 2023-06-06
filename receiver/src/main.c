@@ -45,23 +45,23 @@ uint32_t throttle;
 
 
 /* RTOS */
-void write(void* args) {  // idle task
-	for(;;) {  // task loop
-		USART_write(USART1, (uint8_t*)&state, sizeof(state), 100);
-	}
-}
-
-void run(void* args) {
+void run(void* args) {  // idle task
 	for(;;) {  // task loop
 		throttle = command.throttle;
 		if (command.boost) { throttle *= 3.5; }
 		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
-		vTaskDelay(10);  // 100 Hz
 	}
 }
 
-void traction_control(void* args) {
+void write(void* args) {  // idle + 1
+	for(;;) {  // task loop
+		USART_write(USART1, (uint8_t*)&state, sizeof(state), 10);
+		vTaskDelay(100);  // 10 Hz
+	}
+}
+
+void traction_control(void* args) {  // idle + 2
 	for(;;) {  // task loop
 		// TODO
 		vTaskDelay(10);  // 100 Hz
@@ -166,8 +166,18 @@ int main(void) {
 			"run",
 			configMINIMAL_STACK_SIZE,
 			NULL,
-			tskIDLE_PRIORITY + 2,
+			tskIDLE_PRIORITY,
 			run_task
+	) != pdPASS) {
+		for(;;);
+	}
+	if (xTaskCreate(
+			write,
+			"write",
+			configMINIMAL_STACK_SIZE,
+			NULL,
+			tskIDLE_PRIORITY + 1,
+			write_task
 	) != pdPASS) {
 		for(;;);
 	}
@@ -181,16 +191,6 @@ int main(void) {
 	) != pdPASS) {
 		for(;;);
 	}*/
-	if (xTaskCreate(
-			write,
-			"write",
-			configMINIMAL_STACK_SIZE,
-			NULL,
-			tskIDLE_PRIORITY,
-			write_task
-	) != pdPASS) {
-		for(;;);
-	}
 
 	// start scheduler
 	return xPortStartScheduler();
