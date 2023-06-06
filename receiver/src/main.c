@@ -57,7 +57,7 @@ void run(void* args) {
 		if (command.boost) { throttle *= 3.5; }
 		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
-		vTaskDelay(5);  // 200 Hz
+		vTaskDelay(10);  // 100 Hz
 	}
 }
 
@@ -71,7 +71,7 @@ void traction_control(void* args) {
 
 /* CMSIS */
 extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
-	TIM10->SR = 0x0;  // clear interrupt flags
+	TIM11->SR = 0x0;  // clear interrupt flags
 	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
 	state.rpm_a = TIM2->CNT; //TIM2->CNT = 0;
 	state.rpm_b = TIM3->CNT; //TIM3->CNT = 0;
@@ -84,8 +84,9 @@ extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
 }
 
 extern void TIM1_UP_TIM10_IRQHandler(void) {  // USART buffer polling
-	TIM11->SR &= ~TIM_SR_UIF;  // clear interrupt flag
+	TIM10->SR &= ~TIM_SR_UIF;  // clear interrupt flag
 	uint32_t data, data_crc, crc;
+
 	while (((uint32_t)(uart_buf->i - uart_buf->o)) > 8) {
 		uart_buf->o = (uart_buf->o + 1) % uart_buf->size;
 		if (uart_buf->size - uart_buf->o < 8) {
@@ -152,7 +153,7 @@ int main(void) {
 
 	// watchdog (32kHz / (4 << prescaler))
 	config_watchdog(0, 0xffful);  // 0.5s timeout
-	//start_watchdog();
+	start_watchdog();
 
 	// PWM output
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
@@ -170,7 +171,7 @@ int main(void) {
 	) != pdPASS) {
 		for(;;);
 	}
-	if (xTaskCreate(
+	/*if (xTaskCreate(
 			traction_control,
 			"traction_control",
 			configMINIMAL_STACK_SIZE,
@@ -179,7 +180,7 @@ int main(void) {
 			traction_control_task
 	) != pdPASS) {
 		for(;;);
-	}
+	}*/
 	if (xTaskCreate(
 			write,
 			"write",
