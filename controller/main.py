@@ -56,15 +56,16 @@ def package(throttle: int, steering: int, boost: bool) -> bytes:
 if __name__ == '__main__':
     # commands
     if "-help" in sys.argv: print(
-            "|----------------|-----|-----------|-------|--------------------------------------------------------|",
-            "| command        | req | args      | unit  | description                                            |",
-            "|----------------|-----|-----------|-------|--------------------------------------------------------|",
-            "| -adapter       |  *  | %s        | -     | port connected to the receiver of the car              |",
-            "| -baud          |  *  | %d        | bit/S | baud rate for serial communication                     |",
-            "| -timeout       |     | %f        | S     | time that one write/read operation is allowed to take  |",
-            "| -freq          |     | %d        | Hz    | send frequency (default: 50 Hz, max: <500 Hz)          |",
-            "| -display       |     |           | -     | display the packet that is being sent                  |",
-            "|----------------|-----|-----------|-------|--------------------------------------------------------|",
+            "|----------------|-----|-----------|-------|---------------------------------------------------------------|",
+            "| command        | req | args      | unit  | description                                                   |",
+            "|----------------|-----|-----------|-------|---------------------------------------------------------------|",
+            "| -adapter       |  *  | %s        | -     | port connected to the receiver of the car                     |",
+            "| -baud          |  *  | %d        | bit/S | baud rate for serial communication                            |",
+            "| -timeout       |     | %f        | S     | time that one write/read operation is allowed to take         |",
+            "| -freq          |     | %d        | Hz    | send frequency (default: 50 Hz, max: <500 Hz)                 |",
+            "| -display       |     |           | -     | display the packet that is being sent                         |",
+            "| -test          |     |           | -     | display incoming packet without requiring a PS3 controller    |",
+            "|----------------|-----|-----------|-------|---------------------------------------------------------------|",
             sep="\n"
         ); exit(0)
 
@@ -85,13 +86,20 @@ if __name__ == '__main__':
     if "-freq" in sys.argv:
         try: send_delay = 1 / int(sys.argv[sys.argv.index("-freq") + 1])
         except IndexError or ValueError:  raise Exception("invalid or no timeout provided")
-    display = "-display" in sys.argv
+    test = "-test" in sys.argv
+    display = ("-display" in sys.argv) or test
 
-    # find inputs device
-    for dev in devices:  # TODO: more devices
-        if dev.name == "Sony PLAYSTATION(R)3 Controller":
-            ps3 = PS3(dev); break
-    else: raise Exception("device not found")
+    ps3 = None; ps3_t = None
+    if not test:  # init controller
+        # find inputs device
+        for dev in devices:  # TODO: more devices
+            if dev.name == "Sony PLAYSTATION(R)3 Controller":
+                ps3 = PS3(dev); break
+        else: raise Exception("device not found")
+
+        # setup controller update function
+        ps3_t = thread(target=controller_update_loop, args=(ps3,))
+        ps3_t.start()
 
     # initialize crc
     stm32_crc = crc_lib.Configuration(
@@ -103,34 +111,36 @@ if __name__ == '__main__':
         reverse_output=     False
     ); crc = crc_lib.Calculator(stm32_crc)
 
-    # setup controller update function
-    ps3_t = thread(target=controller_update_loop, args=(ps3,))
-    ps3_t.start()
-
     # open serial port
     ser = serial.Serial(adapter, baud, timeout=timeout)
 
     # main loop
-    clear_line = "\033[1A\x1b[2K"
     try:
         while True:
             sys.stdout.flush()
             time.sleep(send_delay)
-            print(clear_line * 2, flush=True)
+            print("\033[1A\x1b[2K" * 2, flush=True)
 
+            if not test:
+                throttle = ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
+                steering = ps3.joystick_L.raw_x,  # 0 - 255  =[encoding]=>  -128 - 127
+                boost = bool(ps3.x_button)
+            else: throttle = 0; steering = 0; boost = False
             packet = package(
-                ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
-                ps3.joystick_L.raw_x,  # 0 - 255  =[encoding]=>  -128 - 127
-                bool(ps3.x_button)  # boost
+                throttle,
+                steering,
+                boost
             )
-            if display: print(f"{packet.hex()} -> {ps3.trigger_R.raw - ps3.trigger_L.raw}, {ps3.joystick_L.x}")
+            if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}")
             ser.write(packet)
+
             data = b"\x00" * 16
-            if ser.inWaiting() > 20:
+            if ser.inWaiting() >= 16:
                 data = ser.read(16)
-                data_crc = ser.read(4)
-                if data_crc != struct.pack("<L", crc.checksum(data)): continue
-            print(" ".join([str(x) for x in struct.unpack("<LLLL", data)]), end="")
+                #data_crc = ser.read(4)
+                #if data_crc != struct.pack("<L", crc.checksum(data)): continue
+            print(" ".join([hex(x) for x in struct.unpack("<LLLL", data)]), end=" " * 24)
+
     except KeyboardInterrupt:  # stop gracefully
-        ps3_t.stop()
+        if not test: ps3_t.stop()
         os._exit(0)
