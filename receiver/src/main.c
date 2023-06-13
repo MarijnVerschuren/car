@@ -15,7 +15,7 @@
 #include "encoder.h"
 #include "watchdog.h"
 
-
+#define SENSOR_TEST
 #define HC12_SET_PORT GPIOB
 #define HC12_SET_PIN 0
 
@@ -26,7 +26,6 @@ SYS_CLK_Config_t sys_config;
 io_buffer_t* uart_buf;
 TaskHandle_t* run_task;
 TaskHandle_t* traction_control_task;
-TaskHandle_t* write_task;
 
 volatile struct {
 	uint8_t throttle;
@@ -54,20 +53,12 @@ void run(void* args) {  // idle task
 	}
 }
 
-void write(void* args) {  // idle + 1
-	for(;;) {  // task loop
-		USART_write(USART1, (uint8_t*)&state, sizeof(state), 10);
-		vTaskDelay(100);  // 10 Hz
-	}
-}
-
-void traction_control(void* args) {  // idle + 2
+void traction_control(void* args) {  // idle + 1
 	for(;;) {  // task loop
 		// TODO
 		vTaskDelay(10);  // 100 Hz
 	}
 }
-
 
 /* CMSIS */
 extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
@@ -135,7 +126,7 @@ int main(void) {
 
 	// USART polling interrupt
 	config_TIM(TIM11, 100, 10000);  // 100 Hz
-	start_TIM_update_irq(TIM11);  //
+	start_TIM_update_irq(TIM11);  // TIM1_TRG_COM_TIM11_IRQHandler
 	start_TIM(TIM11);
 
 	// I2C
@@ -159,6 +150,13 @@ int main(void) {
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
 	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
 
+	#ifdef SENSOR_TEST
+	for (;;) {
+		USART_write(USART1, (uint8_t*)&state, 16, 10);
+		reset_watchdog();
+	}
+	#endif
+
 	/* RTOS */
 	// create tasks
 	if (xTaskCreate(
@@ -172,16 +170,6 @@ int main(void) {
 		for(;;);
 	}
 	if (xTaskCreate(
-			write,
-			"write",
-			configMINIMAL_STACK_SIZE,
-			NULL,
-			tskIDLE_PRIORITY + 1,
-			write_task
-	) != pdPASS) {
-		for(;;);
-	}
-	/*if (xTaskCreate(
 			traction_control,
 			"traction_control",
 			configMINIMAL_STACK_SIZE,
@@ -190,7 +178,7 @@ int main(void) {
 			traction_control_task
 	) != pdPASS) {
 		for(;;);
-	}*/
+	}
 
 	// start scheduler
 	return xPortStartScheduler();

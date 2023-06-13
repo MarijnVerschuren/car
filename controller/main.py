@@ -116,16 +116,21 @@ if __name__ == '__main__':
 
     # main loop
     try:
+        while test:
+            print("\033[1A\x1b[2K", flush=True)
+            data = b"\x00" * 16
+            if ser.inWaiting() >= 16:
+                data = ser.read(16)
+            print(" ".join([hex(x) for x in struct.unpack("<llll", data)]), end=" " * 24)
+
         while True:
             sys.stdout.flush()
             time.sleep(send_delay)
-            print("\033[1A\x1b[2K" * 2, flush=True)
+            print("\033[1A\x1b[2K", flush=True)
 
-            if not test:
-                throttle = ps3.trigger_R.raw - ps3.trigger_L.raw,    # -255 - 255
-                steering = ps3.joystick_L.raw_x,  # 0 - 255  =[encoding]=>  -128 - 127
-                boost = bool(ps3.x_button)
-            else: throttle = 0; steering = 0; boost = False
+            throttle = ps3.trigger_R.raw - ps3.trigger_L.raw    # -255 - 255
+            steering = ps3.joystick_L.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
+            boost = bool(ps3.x_button)
             packet = package(
                 throttle,
                 steering,
@@ -133,13 +138,6 @@ if __name__ == '__main__':
             )
             if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}")
             ser.write(packet)
-
-            data = b"\x00" * 16
-            if ser.inWaiting() >= 16:
-                data = ser.read(16)
-                #data_crc = ser.read(4)
-                #if data_crc != struct.pack("<L", crc.checksum(data)): continue
-            print(" ".join([hex(x) for x in struct.unpack("<LLLL", data)]), end=" " * 24)
 
     except KeyboardInterrupt:  # stop gracefully
         if not test: ps3_t.stop()
