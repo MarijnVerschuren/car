@@ -15,7 +15,7 @@
 #include "encoder.h"
 #include "watchdog.h"
 
-#define SENSOR_TEST
+//#define SENSOR_TEST
 #define HC12_SET_PORT GPIOB
 #define HC12_SET_PIN 0
 
@@ -35,10 +35,10 @@ volatile struct {
 	uint16_t flags		: 14;
 } command;
 volatile struct {
-	int32_t rpm_a;
-	int32_t rpm_b;
-	int32_t rpm_c;
-	int32_t rpm_d;
+	int32_t rev_a;
+	int32_t rev_b;
+	int32_t rev_c;
+	int32_t rev_d;
 } state;
 uint32_t throttle;
 
@@ -64,14 +64,10 @@ void traction_control(void* args) {  // idle + 1
 extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
 	TIM11->SR = 0x0;  // clear interrupt flags
 	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
-	state.rpm_a = TIM2->CNT; //TIM2->CNT = 0;
-	state.rpm_b = TIM3->CNT; //TIM3->CNT = 0;
-	state.rpm_c = TIM4->CNT; //TIM4->CNT = 0;
-	state.rpm_d = TIM5->CNT; //TIM5->CNT = 0;
-	/*if (TIM2->SR & mask) { state.rpm_a = 0; TIM2->SR &= ~mask; }
-	if (TIM3->SR & mask) { state.rpm_b = 0; TIM3->SR &= ~mask; }
-	if (TIM4->SR & mask) { state.rpm_c = 0; TIM4->SR &= ~mask; }
-	if (TIM5->SR & mask) { state.rpm_d = 0; TIM5->SR &= ~mask; }*/
+	state.rev_a = *((volatile int32_t*)&TIM2->CNT); TIM2->CNT = 0;
+	state.rev_b = *((volatile int32_t*)&TIM3->CNT); TIM3->CNT = 0;
+	state.rev_c = *((volatile int32_t*)&TIM4->CNT); TIM4->CNT = 0;
+	state.rev_d = *((volatile int32_t*)&TIM5->CNT); TIM5->CNT = 0;
 }
 
 extern void TIM1_UP_TIM10_IRQHandler(void) {  // USART buffer polling
@@ -105,7 +101,11 @@ int main(void) {
 	set_SYS_PLL_config(&sys_config, 15, 120, PLL_P_DIV2, 0, PLL_SRC_HSE);
 	set_SYS_CLOCK_config(&sys_config, SYS_CLK_SRC_PLL, AHB_CLK_NO_DIV, APBx_CLK_DIV2, APBx_CLK_NO_DIV, 0);
 	set_SYS_FLASH_config(&sys_config, FLASH_LATENCY4, 1, 1, 1);  // latency is set automatically (when need be)
+	#ifdef SENSOR_TEST
+	set_SYS_tick_config(&sys_config, 1, 1, NULL);
+	#else
 	set_SYS_tick_config(&sys_config, 1, 1, RTOS_tick_handler);
+	#endif
 	sys_clock_init(&sys_config);
 
 	// GPIO output
@@ -133,14 +133,18 @@ int main(void) {
 	config_I2C(I2C1_SCL_B8, I2C1_SDA_B9, 0x00);
 
 	// encoders
-	config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);
-	config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
-	config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);
-	config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);
-	start_encoder_S0S90(TIM2);
-	start_encoder_S0S90(TIM3);
-	start_encoder_S0S90(TIM4);
-	start_encoder_S0S90(TIM5);
+	config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);	start_encoder_S0S90(TIM2);
+	config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);		start_encoder_S0S90(TIM3);
+	config_encoder_S0S90(TIM4_CH1_B6, TIM4_CH2_B7);		start_encoder_S0S90(TIM4);
+	config_encoder_S0S90(TIM5_CH1_A0, TIM5_CH2_A1);		start_encoder_S0S90(TIM5);
+
+	#ifdef SENSOR_TEST
+	for (;;) {
+		USART_write(USART1, (uint8_t*)&state, 16, 50);
+		reset_watchdog();
+		delay_ms(100);
+	}
+	#endif
 
 	// watchdog (32kHz / (4 << prescaler))
 	config_watchdog(0, 0xffful);  // 0.5s timeout
@@ -150,12 +154,6 @@ int main(void) {
 	config_PWM(TIM9_CH1_A2, 100, 20000);	TIM9->CCR1 = 950;	// steering 750 - 950 - 1150
 	config_PWM(TIM9_CH2_A3, 100, 20000);	TIM9->CCR2 = 1500;	// throttle 1500 - 2500
 
-	#ifdef SENSOR_TEST
-	for (;;) {
-		USART_write(USART1, (uint8_t*)&state, 16, 10);
-		reset_watchdog();
-	}
-	#endif
 
 	/* RTOS */
 	// create tasks

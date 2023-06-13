@@ -116,11 +116,10 @@ if __name__ == '__main__':
 
     # main loop
     try:
+        data = b"\x00" * 16
         while test:
             print("\033[1A\x1b[2K", flush=True)
-            data = b"\x00" * 16
-            if ser.inWaiting() >= 16:
-                data = ser.read(16)
+            if ser.inWaiting() >= 16: data = ser.read(16)
             print(" ".join([hex(x) for x in struct.unpack("<llll", data)]), end=" " * 24)
 
         while True:
