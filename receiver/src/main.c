@@ -18,9 +18,9 @@
 //#define SENSOR_TEST
 #define HC12_SET_PORT GPIOB
 #define HC12_SET_PIN 0
+#define ABS(x) ((x) < 0 ? (x) * -1 : (x))
 
-
-/* variables */
+/* Variables */
 SYS_CLK_Config_t sys_config;
 
 io_buffer_t* uart_buf;
@@ -32,30 +32,71 @@ volatile struct {
 	uint8_t steering;
 	uint16_t reverse	: 1;
 	uint16_t boost		: 1;	// enable throttle multiplication
+	uint16_t tc_enable	: 1;	// enable traction control divisor
 	uint16_t flags		: 14;
 } command;
 volatile struct {
-	int32_t rev_a;
-	int32_t rev_b;
-	int32_t rev_c;
-	int32_t rev_d;
+	int16_t rev_a;
+	int16_t rev_b;
+	int16_t rev_c;
+	int16_t rev_d;
 } state;
-uint32_t throttle;
+volatile double throttle;
+volatile double tc_divisor = 1;
+
+
+/* Functions */
+void slip_ratio(int16_t* min, int16_t* max) {
+	*min = state.rev_a;	*max = state.rev_a;
+	if (state.rev_b < *min) { *min = state.rev_b; }
+	if (state.rev_b > *max) { *max = state.rev_b; }
+	if (state.rev_c < *min) { *min = state.rev_c; }
+	if (state.rev_c > *max) { *max = state.rev_c; }
+	if (state.rev_d < *min) { *min = state.rev_d; }
+	if (state.rev_d > *max) { *max = state.rev_d; }
+}
+
+
+/* PID */
+typedef struct {
+	double P;
+	double I;
+	double D;
+} PID;
+PID tc;  // traction control
 
 
 /* RTOS */
 void run(void* args) {  // idle task
 	for(;;) {  // task loop
-		throttle = command.throttle;
-		if (command.boost) { throttle *= 3.5; }
+		throttle = ((double)command.throttle);
+		if (command.boost)		{ throttle *= 3.5; }
+		if (command.tc_enable)	{ throttle /= tc_divisor; }
 		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
-		TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
+		TIM9->CCR2 = (1500 + (((uint32_t)throttle) * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
 	}
 }
 
 void traction_control(void* args) {  // idle + 1
+	tc.P = 0.5;
+	tc.D = 0.75;
+	double last_error = 0;
+	double error;
+	double derivative;
+	int16_t min, max;
+
+	const double target_ratio = 0.2;  // fastest and slowest wheel can differ by a factor of .2
+	// TODO: handle acceptable ratios
+	// TODO: handle negative slip ratios
+	uint64_t time = tick;
 	for(;;) {  // task loop
-		// TODO
+		slip_ratio(&min, &max);
+		error = ((double)(ABS(max) + 1)) / ((double)(ABS(min) + 1));
+		derivative = error - last_error;
+
+		last_error = (error * tc.P) + (derivative * tc.D);
+		tc_divisor = last_error;
+
 		vTaskDelay(10);  // 100 Hz
 	}
 }
@@ -64,10 +105,10 @@ void traction_control(void* args) {  // idle + 1
 extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
 	TIM11->SR = 0x0;  // clear interrupt flags
 	uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
-	state.rev_a = *((volatile int32_t*)&TIM2->CNT); TIM2->CNT = 0;
-	state.rev_b = *((volatile int32_t*)&TIM3->CNT); TIM3->CNT = 0;
-	state.rev_c = *((volatile int32_t*)&TIM4->CNT); TIM4->CNT = 0;
-	state.rev_d = *((volatile int32_t*)&TIM5->CNT); TIM5->CNT = 0;
+	state.rev_a = *((volatile int16_t*)&TIM2->CNT); TIM2->CNT = 0;
+	state.rev_b = *((volatile int16_t*)&TIM3->CNT); TIM3->CNT = 0;
+	state.rev_c = *((volatile int16_t*)&TIM4->CNT); TIM4->CNT = 0;
+	state.rev_d = *((volatile int16_t*)&TIM5->CNT); TIM5->CNT = 0;
 }
 
 extern void TIM1_UP_TIM10_IRQHandler(void) {  // USART buffer polling

@@ -34,7 +34,7 @@ def controller_update_loop(controller: PS3) -> None:
 #===============================================|
 # functions                                     |
 #===============================================|
-def package(throttle: int, steering: int, boost: bool) -> bytes:
+def package(throttle: int, steering: int, boost: bool, tc_enable: bool) -> bytes:
     # struct packet {
     #   uint8_t throttle;
     #   uint8_t steering;
@@ -42,8 +42,9 @@ def package(throttle: int, steering: int, boost: bool) -> bytes:
     #   uint16_t flags : 15;  # not used at this time
     # }
     flags = 0x0000
-    if throttle < 0: flags |= 0x1; throttle *= -1
-    if boost: flags |= 0x2;
+    if throttle < 0:    flags |= 0x1; throttle *= -1
+    if boost:           flags |= 0x2
+    if tc_enable:       flags |= 0x4
     pack_data = struct.pack("<BBH", throttle, steering, flags)
     pack_crc = struct.pack("<L", crc.checksum(pack_data[::-1]))  # flip bytes because python
 
@@ -122,6 +123,8 @@ if __name__ == '__main__':
             if ser.inWaiting() >= 16: data = ser.read(16)
             print(" ".join([hex(x) for x in struct.unpack("<llll", data)]), end=" " * 24)
 
+        tc_enable = True
+        tc_btn = False
         while True:
             sys.stdout.flush()
             time.sleep(send_delay)
@@ -130,12 +133,15 @@ if __name__ == '__main__':
             throttle = ps3.trigger_R.raw - ps3.trigger_L.raw    # -255 - 255
             steering = ps3.joystick_L.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
             boost = bool(ps3.x_button)
+            if (not tc_btn) and (tc_btn != bool(ps3.circle)): tc_enable = not tc_enable
+            tc_btn = bool(ps3.circle)
             packet = package(
                 throttle,
                 steering,
-                boost
+                boost,
+                tc_enable
             )
-            if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}")
+            if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}, {tc_enable}")
             ser.write(packet)
 
     except KeyboardInterrupt:  # stop gracefully
