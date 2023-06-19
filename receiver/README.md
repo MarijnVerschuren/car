@@ -123,15 +123,15 @@ car project based on the STM32F411CEU6
 
 ## TIM
 > ### Config
-> | TIM   | clock src | prescaler | reload | mode                  | channels | function description             | interrupt                     | interrupt priority |
-> |-------|-----------|-----------|--------|-----------------------|----------|----------------------------------|-------------------------------|--------------------|
-> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                 | -                             | -                  |
-> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                 | -                             | -                  |
-> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                 | -                             | -                  |
-> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                 | -                             | -                  |
-> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)                | -                             | -                  |
-> | TIM10 | APB2      | 100       | 10000  | -                     | -        | USART polling interrupt (100Hz)  | TIM1_UP_TIM10_IRQHandler      | 25                 |
-> | TIM11 | APB2      | 100       | 10000  | -                     | -        | Sensor polling interrupt (100Hz) | TIM1_TRG_COM_TIM11_IRQHandler | 26                 |
+> | TIM   | clock src | prescaler | reload | mode                  | channels | function description            | interrupt                     | interrupt priority |
+> |-------|-----------|-----------|--------|-----------------------|----------|---------------------------------|-------------------------------|--------------------|
+> | TIM2  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder1 counter                | -                             | -                  |
+> | TIM3  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder2 counter                | -                             | -                  |
+> | TIM4  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder3 counter                | -                             | -                  |
+> | TIM5  | APB1      | -         | 0xffff | Encoder               | 1, 2     | Encoder4 counter                | -                             | -                  |
+> | TIM9  | APB2      | 100       | 20000  | Capture Compare (PWM) | 1, 2     | PWM output (50Hz)               | -                             | -                  |
+> | TIM10 | APB2      | 100       | 10000  | -                     | -        | USART polling interrupt (100Hz) | TIM1_UP_TIM10_IRQHandler      | 25                 |
+> | TIM11 | APB2      | 200       | 10000  | -                     | -        | Sensor polling interrupt (50Hz) | TIM1_TRG_COM_TIM11_IRQHandler | 26                 |
 > ##
 > ### Code
 > #### USART polling interrupt
