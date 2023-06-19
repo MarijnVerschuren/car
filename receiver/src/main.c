@@ -62,7 +62,7 @@ void process_PID(PID* pid, double error) {
 	pid->I_term += error;
 	if (pid->I_term > pid->I_max) { pid->I_term = pid->I_max; }
 	if (pid->I_term < pid->I_min) { pid->I_term = pid->I_min; }
-	pid->output = (error * pid->P) + (pid->I_term * pid->I) + (error - pid->output * pid->D);
+	pid->output = (error * pid->P) + (pid->I_term * pid->I) + ((error - pid->output) * pid->D);
 }
 
 
@@ -84,7 +84,7 @@ void run(void* args) {  // idle task
 	for(;;) {  // task loop
 		throttle = ((double)command.throttle);
 		if (command.boost)		{ throttle *= 3.5; }
-		if (command.tc_enable)	{ throttle /= (tc.output + 1); }
+		if (command.tc_enable)	{ throttle /= tc.output; }
 		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 		TIM9->CCR2 = (1500 + (((uint32_t)throttle) * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
 	}
@@ -92,17 +92,16 @@ void run(void* args) {  // idle task
 
 void traction_control(void* args) {  // idle + 1
 	tc.I_term = tc.I_max = tc.I_min = 0;  // I is not used
-	tc.P = 0.50;
+	tc.P = 0.75;
 	tc.I = 0.00;
 	tc.D = 0.75;
 	tc.output = 0;  // reset output
 
 	// const double target_ratio = 0.2;  // fastest and slowest wheel can differ by a factor of .2
 	// TODO: handle acceptable ratios
-	uint64_t time = tick;
 	for(;;) {  // task loop
-		process_PID(&tc, slip_ratio() - 1);  // slip ratio of 1 is optimal
-		if (tc.output < 0) { tc.output = 0; }  // clamp output to 0
+		process_PID(&tc, slip_ratio());
+		if (tc.output < 1) { tc.output = 1; }  // clamp output to 1
 		vTaskDelay(10);  // 100 Hz
 	}
 }
@@ -167,13 +166,13 @@ int main(void) {
 	if (!uart_buf) { for(;;); }  // allocation error
 	start_USART_read_irq(USART1, uart_buf, 1);
 
-	// Sensor polling interrupt
+	// USART polling interrupt
 	config_TIM(TIM10, 100, 10000);  // 100 Hz
 	start_TIM_update_irq(TIM10);  // TIM1_UP_TIM10_IRQHandler
 	start_TIM(TIM10);
 
-	// USART polling interrupt
-	config_TIM(TIM11, 100, 10000);  // 100 Hz
+	// Sensor polling interrupt
+	config_TIM(TIM11, 200, 10000);  // 50 Hz
 	start_TIM_update_irq(TIM11);  // TIM1_TRG_COM_TIM11_IRQHandler
 	start_TIM(TIM11);
 
