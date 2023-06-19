@@ -2,20 +2,25 @@
 car project based on the STM32F411CEU6
 
 # Design
-![](design0.png)
-![](design1.png)
-![](design2.png)
+### CAR ECU
+![](ECU0.png)
+![](ECU1.png)
+![](ECU2.png)
+### HAL encoder
+![](HAL0.png)
+
 
 # Components
 * STM32F411CEU6     (Microcontroller)
 * HC-12             (Radio module)
 * 24LC512           (EEPROM)
-* 4 * Optical rotary encoders
+* 4 * HAL encoders
 
 # Software
 * sys_clock
 * GPIO
 * RTOS
+  * PID
 * TIM
   * PWM
   * Encoder (mode)
@@ -85,21 +90,34 @@ car project based on the STM32F411CEU6
 > | task             | priority | function description                                      |
 > |------------------|----------|-----------------------------------------------------------|
 > | run              | idle     | Task that generates PWM signals based on incoming command |
-> | write            | idle + 1 | Task that sends the current speed of each tire            |
-> | traction_control | idle + 2 | Task for the traction control PID loop                    |
+> | traction_control | idle + 1 | Task for the traction control PID loop                    |
 > ##
 > ### Code
 > #### run task
 > this task looks at the 'command' struct which is updated from the USART polling interrupt (see TIM and USART) and
 > generates the correct PWM signals based on it
 > ``` C
-> void run(void* args) {
+> void run(void* args) {  // idle task
 >     for(;;) {  // task loop
->         throttle = command.throttle;
->         if (command.boost) { throttle *= 3.5; }
+>         throttle = ((double)command.throttle);
+>         if (command.boost)		{ throttle *= 3.5; }
+>         if (command.tc_enable)	{ throttle /= tc.output; }				// divide by PID output
 >         TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
->         TIM9->CCR2 = (1500 + (throttle * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
->         vTaskDelay(5);  // 200 Hz
+>         TIM9->CCR2 = (1500 + (((uint32_t)throttle) * (1 + -2 * command.reverse)));	// idle +- 512  (around + 1000 is max)
+>     }
+> }
+>
+> void traction_control(void* args) {  // idle + 1
+>     tc.I_term = tc.I_max = tc.I_min = 0;  // I is not used
+>     tc.P = 0.75;
+>     tc.I = 0.00;
+>     tc.D = 0.75;
+>     tc.output = 0;  // reset output
+>
+>     for(;;) {  // task loop
+>         process_PID(&tc, slip_ratio());		// calculate tc_divisor
+>         if (tc.output < 1) { tc.output = 1; }	// clamp output to 1
+>         vTaskDelay(10);  // 100 Hz
 >     }
 > }
 > 
@@ -115,11 +133,46 @@ car project based on the STM32F411CEU6
 >     ) != pdPASS) {
 >         for(;;);
 >     }
+>     
+>     if (xTaskCreate(
+>         traction_control,
+>         "traction_control",
+>         configMINIMAL_STACK_SIZE,
+>         NULL,
+>         tskIDLE_PRIORITY + 1,
+>         traction_control_task
+>     ) != pdPASS) {
+>         for(;;);
+>     }
 >
 >     // start scheduler
 >     return xPortStartScheduler();
 > }
 > ```
+> 
+> ### PID
+> the ECU looks at all the HAL encoders and calculates the ratio between the fastest and slowest wheel (see Encoders).
+> this ratio is used as the input of the PID controller. the output is used to divide the throttle value (see RTOS).
+> ```C
+> void process_PID(PID* pid, double error) {  // calculate PID
+>     pid->I_term += error;
+>     if (pid->I_term > pid->I_max) { pid->I_term = pid->I_max; }
+>     if (pid->I_term < pid->I_min) { pid->I_term = pid->I_min; }
+>     pid->output = (error * pid->P) + (pid->I_term * pid->I) + ((error - pid->output) * pid->D);
+> }
+>
+> double slip_ratio() {  // find maximum ratio between wheel speeds
+>     int16_t min = state.rev_a, max = state.rev_a;
+>     if (state.rev_b < min) { min = state.rev_b; }
+>     if (state.rev_b > max) { max = state.rev_b; }
+>     if (state.rev_c < min) { min = state.rev_c; }
+>     if (state.rev_c > max) { max = state.rev_c; }
+>     if (state.rev_d < min) { min = state.rev_d; }
+>     if (state.rev_d > max) { max = state.rev_d; }
+>     return ((double)(ABS(max) + 1)) / ((double)(ABS(min) + 1));
+> }
+> ```
+
 
 ## TIM
 > ### Config
@@ -167,6 +220,15 @@ car project based on the STM32F411CEU6
 > ### Encoders
 > Encoder readings are stored in: `TIMx->CNT`
 > ```C
+> extern void TIM1_TRG_COM_TIM11_IRQHandler(void) {  // sensor polling
+>     TIM11->SR = 0x0;  // clear interrupt flags
+>     uint16_t mask = TIM_SR_CC1OF | TIM_SR_CC2OF;
+>     state.rev_a = *((volatile int16_t*)&TIM2->CNT); TIM2->CNT = 0;
+>     state.rev_b = *((volatile int16_t*)&TIM3->CNT); TIM3->CNT = 0;
+>     state.rev_c = *((volatile int16_t*)&TIM4->CNT); TIM4->CNT = 0;
+>     state.rev_d = *((volatile int16_t*)&TIM5->CNT); TIM5->CNT = 0;
+> }
+> 
 > int main(void) {
 >     config_encoder_S0S90(TIM2_CH1_A15, TIM2_CH2_B3);
 >     config_encoder_S0S90(TIM3_CH1_A6, TIM3_CH2_A7);
@@ -176,6 +238,7 @@ car project based on the STM32F411CEU6
 >     start_encoder_S0S90(TIM3);
 >     start_encoder_S0S90(TIM4);
 >     start_encoder_S0S90(TIM5);
+>     // sensors are read from within a timer interrupt
 > }
 > ```
 > 
