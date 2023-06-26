@@ -56,6 +56,8 @@ typedef struct {
 	double I_max;
 	double I_min;
 
+	double D_prev;
+
 	double output;
 } PID;
 volatile PID tc;  // traction control
@@ -64,7 +66,8 @@ void process_PID(PID* pid, double error) {
 	pid->I_term += error;
 	if (pid->I_term > pid->I_max) { pid->I_term = pid->I_max; }
 	if (pid->I_term < pid->I_min) { pid->I_term = pid->I_min; }
-	pid->output = (error * pid->P) + (pid->I_term * pid->I) + ((error - pid->output) * pid->D);
+	pid->output = (error * pid->P) + (pid->I_term * pid->I) + ((error - pid->D_prev) * pid->D);
+	pid->D_prev = error;
 }
 
 
@@ -103,6 +106,7 @@ void traction_control(void* args) {  // idle + 1
 	tc.P = 0.75;
 	tc.I = 0.00;
 	tc.D = 0.75;
+	tc.D_prev = 0;  // reset previous error
 	tc.output = 0;  // reset output
 
 	for(;;) {  // task loop
