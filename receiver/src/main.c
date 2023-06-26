@@ -2,6 +2,7 @@
 #include <FreeRTOSConfig.h>
 #include <FreeRTOS.h>
 #include <task.h>
+#include <semphr.h>
 
 // CMSIS
 #include "main.h"
@@ -25,6 +26,7 @@ SYS_CLK_Config_t sys_config;
 io_buffer_t* uart_buf;
 TaskHandle_t* run_task;
 TaskHandle_t* traction_control_task;
+volatile SemaphoreHandle_t mutex;
 
 volatile struct {
 	uint8_t throttle;
@@ -56,7 +58,7 @@ typedef struct {
 
 	double output;
 } PID;
-PID tc;  // traction control
+volatile PID tc;  // traction control
 
 void process_PID(PID* pid, double error) {
 	pid->I_term += error;
@@ -67,7 +69,7 @@ void process_PID(PID* pid, double error) {
 
 
 /* Functions */
-double slip_ratio() {
+double slip_difference() {
 	int16_t min = state.rev_a, max = state.rev_a;
 	if (state.rev_b < min) { min = state.rev_b; }
 	if (state.rev_b > max) { max = state.rev_b; }
@@ -75,7 +77,7 @@ double slip_ratio() {
 	if (state.rev_c > max) { max = state.rev_c; }
 	if (state.rev_d < min) { min = state.rev_d; }
 	if (state.rev_d > max) { max = state.rev_d; }
-	return ((double)(ABS(max) + 1)) / ((double)(ABS(min) + 1));
+	return max - min;
 }
 
 
@@ -83,10 +85,16 @@ double slip_ratio() {
 void run(void* args) {  // idle task
 	for(;;) {  // task loop
 		throttle = ((double)command.throttle);
+		if (command.tc_enable)	{
+			xSemaphoreTake(mutex, portMAX_DELAY);
+			throttle -= (double)tc.output;
+			xSemaphoreGive(mutex);
+			if (throttle < 0)	{ throttle = 0; }
+			if (throttle > 255)	{ throttle = 255; }
+		}
 		if (command.boost)		{ throttle *= 3.5; }
-		if (command.tc_enable)	{ throttle /= tc.output; }
-		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
-		TIM9->CCR2 = (1500 + (((uint32_t)throttle) * (1 + -2 * command.reverse)));			// idle +- 512  (around + 1000 is max)
+		TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));			// multiplied by constant that scales it from [-128, 127] to [-200, 200]
+		TIM9->CCR2 = (1500 + (((uint32_t)throttle) * (1 + -2 * command.reverse)));	// idle +- 512  (around + 1000 is max)
 	}
 }
 
@@ -97,11 +105,10 @@ void traction_control(void* args) {  // idle + 1
 	tc.D = 0.75;
 	tc.output = 0;  // reset output
 
-	// const double target_ratio = 0.2;  // fastest and slowest wheel can differ by a factor of .2
-	// TODO: handle acceptable ratios
 	for(;;) {  // task loop
-		process_PID(&tc, slip_ratio());
-		if (tc.output < 1) { tc.output = 1; }  // clamp output to 1
+		xSemaphoreTake(mutex, portMAX_DELAY);
+		process_PID(&tc, slip_difference());
+		xSemaphoreGive(mutex);
 		vTaskDelay(10);  // 100 Hz
 	}
 }
@@ -203,6 +210,9 @@ int main(void) {
 
 
 	/* RTOS */
+	// create mutex
+	mutex = xSemaphoreCreateMutex();
+
 	// create tasks
 	if (xTaskCreate(
 			run,
