@@ -95,13 +95,23 @@ car project based on the STM32F411CEU6
 > ### Code
 > #### run task
 > this task looks at the 'command' struct which is updated from the USART polling interrupt (see TIM and USART) and
-> generates the correct PWM signals based on it
+> generates the correct PWM signals based on it. The throttle value may be changed by the PID traction controller
+> access to which has to be done while in possession of the mutex to prevent data corruption. This PID output value is
+> changed from the 'traction_control' task which looks at the hal encoders on each wheel to determine the maximum 
+> speed difference between wheels and calculates an appropriate response based on it.
 > ``` C
 > void run(void* args) {  // idle task
 >     for(;;) {  // task loop
->         throttle = ((double)command.throttle);
+>         throttle = ((double)command.throttle); 
+>         if (command.tc_enable)	{
+>             xSemaphoreTake(mutex, portMAX_DELAY);
+>             throttle -= (double)tc.output;
+>             xSemaphoreGive(mutex);
+>             // 0 < throttle ≤ 255
+>             if (throttle < 0)    { throttle = 0; }
+>             if (throttle > 255)  { throttle = 255; }
+>         }
 >         if (command.boost)		{ throttle *= 3.5; }
->         if (command.tc_enable)	{ throttle /= tc.output; }				// divide by PID output
 >         TIM9->CCR1 = (950 + (int16_t)((command.steering - 128) * 1.5625));		// multiplied by constant that scales it from [-128, 127] to [-200, 200]
 >         TIM9->CCR2 = (1500 + (((uint32_t)throttle) * (1 + -2 * command.reverse)));	// idle +- 512  (around + 1000 is max)
 >     }
@@ -112,16 +122,21 @@ car project based on the STM32F411CEU6
 >     tc.P = 0.75;
 >     tc.I = 0.00;
 >     tc.D = 0.75;
+>     tc.D_prev = 0;  // reset previous error
 >     tc.output = 0;  // reset output
 >
 >     for(;;) {  // task loop
->         process_PID(&tc, slip_ratio());		// calculate tc_divisor
->         if (tc.output < 1) { tc.output = 1; }	// clamp output to 1
+>         xSemaphoreTake(mutex, portMAX_DELAY);
+>         process_PID(&tc, slip_difference());
+>         xSemaphoreGive(mutex);
 >         vTaskDelay(10);  // 100 Hz
 >     }
 > }
 > 
 > int main(void) {
+>     // create mutex
+>     mutex = xSemaphoreCreateMutex();
+> 
 >     // create tasks
 >     if (xTaskCreate(
 >         run,
@@ -151,17 +166,18 @@ car project based on the STM32F411CEU6
 > ```
 > 
 > ### PID
-> the ECU looks at all the HAL encoders and calculates the ratio between the fastest and slowest wheel (see Encoders).
-> this ratio is used as the input of the PID controller. the output is used to divide the throttle value (see RTOS).
+> the ECU looks at all the HAL encoders and calculates the difference between the fastest and slowest wheel (see Encoders).
+> this ratio is used as the input of the PID controller. the output is subtracted from the throttle value (see RTOS).
 > ```C
-> void process_PID(PID* pid, double error) {  // calculate PID
+> void process_PID(PID* pid, double error) {
 >     pid->I_term += error;
 >     if (pid->I_term > pid->I_max) { pid->I_term = pid->I_max; }
 >     if (pid->I_term < pid->I_min) { pid->I_term = pid->I_min; }
->     pid->output = (error * pid->P) + (pid->I_term * pid->I) + ((error - pid->output) * pid->D);
+>     pid->output = (error * pid->P) + (pid->I_term * pid->I) + ((error - pid->D_prev) * pid->D);
+>     pid->D_prev = error;
 > }
 >
-> double slip_ratio() {  // find maximum ratio between wheel speeds
+> double slip_difference() {  // find maximum difference between wheel speeds
 >     int16_t min = state.rev_a, max = state.rev_a;
 >     if (state.rev_b < min) { min = state.rev_b; }
 >     if (state.rev_b > max) { max = state.rev_b; }
@@ -169,7 +185,7 @@ car project based on the STM32F411CEU6
 >     if (state.rev_c > max) { max = state.rev_c; }
 >     if (state.rev_d < min) { min = state.rev_d; }
 >     if (state.rev_d > max) { max = state.rev_d; }
->     return ((double)(ABS(max) + 1)) / ((double)(ABS(min) + 1));
+>     return max - min;
 > }
 > ```
 
