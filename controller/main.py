@@ -1,4 +1,5 @@
 import crc as crc_lib
+import keyboard as kb
 from inputs import *
 import threading
 import ctypes
@@ -45,6 +46,7 @@ def package(throttle: int, steering: int, boost: bool, tc_enable: bool) -> bytes
     if throttle < 0:    flags |= 0x1; throttle *= -1
     if boost:           flags |= 0x2
     if tc_enable:       flags |= 0x4
+    print(throttle, steering, flags)
     pack_data = struct.pack("<BBH", throttle, steering, flags)
     pack_crc = struct.pack("<L", crc.checksum(pack_data[::-1]))  # flip bytes because python
 
@@ -66,6 +68,7 @@ if __name__ == '__main__':
             "| -freq          |     | %d        | Hz    | send frequency (default: 50 Hz, max: <500 Hz)                 |",
             "| -display       |     |           | -     | display the packet that is being sent                         |",
             "| -test          |     |           | -     | display incoming packet without requiring a PS3 controller    |",
+            "| -keyboard      |     |           | -     | use keyboard instead of PS3 controller                        |",
             "|----------------|-----|-----------|-------|---------------------------------------------------------------|",
             sep="\n"
         ); exit(0)
@@ -88,10 +91,11 @@ if __name__ == '__main__':
         try: send_delay = 1 / int(sys.argv[sys.argv.index("-freq") + 1])
         except IndexError or ValueError:  raise Exception("invalid or no timeout provided")
     test = "-test" in sys.argv
+    keyboard = "-keyboard" in sys.argv
     display = ("-display" in sys.argv) or test
 
     ps3 = None; ps3_t = None
-    if not test:  # init controller
+    if not (test or keyboard):  # init controller
         # find inputs device
         for dev in devices:  # TODO: more devices
             if dev.name == "Sony PLAYSTATION(R)3 Controller":
@@ -125,24 +129,51 @@ if __name__ == '__main__':
 
         tc_enable = True
         tc_btn = False
-        while True:
-            sys.stdout.flush()
-            time.sleep(send_delay)
-            print("\033[1A\x1b[2K", flush=True)
+        if keyboard:
+            while True:
+                sys.stdout.flush()
+                time.sleep(send_delay)
+                print("\033[1A\x1b[2K", flush=True)
 
-            throttle = ps3.trigger_R.raw - ps3.trigger_L.raw    # -255 - 255
-            steering = ps3.joystick_L.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
-            boost = bool(ps3.x_button)
-            if (not tc_btn) and (tc_btn != bool(ps3.circle)): tc_enable = not tc_enable
-            tc_btn = bool(ps3.circle)
-            packet = package(
-                throttle,
-                steering,
-                boost,
-                tc_enable
-            )
-            if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}, {tc_enable}")
-            ser.write(packet)
+                throttle = 0
+                steering = 127
+
+                if kb.is_pressed("w"): throttle = 255
+                if kb.is_pressed("s"): throttle = -255
+                if kb.is_pressed("a"): steering = 0
+                if kb.is_pressed("d"): steering = 255
+                if not kb.is_pressed("tab") and tc_btn: tc_enable = not tc_enable
+                tc_btn = kb.is_pressed("tab")
+                boost = kb.is_pressed(" ")
+
+                packet = package(
+                    throttle,
+                    steering,
+                    boost,
+                    tc_enable
+                )
+
+                if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}, {tc_enable}")
+                ser.write(packet)
+        else:
+            while True:
+                sys.stdout.flush()
+                time.sleep(send_delay)
+                print("\033[1A\x1b[2K", flush=True)
+
+                throttle = ps3.trigger_R.raw - ps3.trigger_L.raw    # -255 - 255
+                steering = ps3.joystick_L.raw_x  # 0 - 255  =[encoding]=>  -128 - 127
+                boost = bool(ps3.x_button)
+                if (not tc_btn) and (tc_btn != bool(ps3.circle)): tc_enable = not tc_enable
+                tc_btn = bool(ps3.circle)
+                packet = package(
+                    throttle,
+                    steering,
+                    boost,
+                    tc_enable
+                )
+                if display: print(f"{packet.hex()} -> {throttle}, {steering}, {boost}, {tc_enable}")
+                ser.write(packet)
 
     except KeyboardInterrupt:  # stop gracefully
         if not test: ps3_t.stop()
